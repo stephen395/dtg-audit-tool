@@ -97,6 +97,9 @@ window.BillPDFParser = (function () {
       const text = pages[i];
       if (!text.includes('Plan') || !text.includes('Total')) continue;
 
+      console.log('[PDF-SUMMARY] Page', i + 1, 'text length:', text.length);
+      console.log('[PDF-SUMMARY] First 500 chars:', text.substring(0, 500));
+
       // --- CHARGE LINES ---
       // Format: NNN.NNN.NNNN USER PAGE# Activity Plan Equipment CompFees GovTaxes Total
       const chargeRe = /(\d{3}\.\d{3}\.\d{4})\s+([A-Za-z][A-Za-z\s.,'\-&/]+?)\s+(\d{1,3})\s+(-?\$[\d,.]+|-)\s+\$([\d,.]+)\s+(-?\$[\d,.]+|-)\s+\$([\d,.]+)\s+(-?\$[\d,.]+|-)\s+\$([\d,.]+)/g;
@@ -114,10 +117,11 @@ window.BillPDFParser = (function () {
           totalCharges: parseMoney(cm[9]),
           dataGB: 0, textCount: 0, talkMinutes: 0,
         };
+        console.log('[PDF-SUMMARY] Charge line:', wireless, cm[2].trim(), 'plan=$' + cm[5]);
       }
 
       // --- USAGE LINES ---
-      // Format: NNN.NNN.NNNN USER X.XXGB (unlimited) NNN (unlimited) NNN (unlimited)
+      // Primary: NNN.NNN.NNNN USER X.XXGB (unlimited) NNN (unlimited) NNN (unlimited)
       const usageRe = /(\d{3}\.\d{3}\.\d{4})\s+([A-Za-z][A-Za-z\s.,'\-&/]+?)\s+([\d.]+)GB\s*\((\w+)\)\s+([\d,]+)\s*\((\w+)\)\s+([\d,]+)\s*\((\w+)\)/g;
       let um;
       while ((um = usageRe.exec(text)) !== null) {
@@ -131,6 +135,38 @@ window.BillPDFParser = (function () {
           profiles[wireless].textCount = textCount;
           profiles[wireless].talkMinutes = talkMin;
         }
+        console.log('[PDF-SUMMARY] Usage line:', wireless, 'data:', dataGB, 'GB, text:', textCount, ', talk:', talkMin);
+      }
+
+      // Fallback: if primary usage regex didn't match, try matching by bracket markers
+      // [[XXXXXXXXXX||XXXXXXXXXX]] appear near usage lines in pdf.js output
+      if (Object.keys(profiles).length > 0) {
+        for (const wireless of Object.keys(profiles)) {
+          if (profiles[wireless].dataGB > 0) continue; // already have usage
+          // Try to find usage near the bracket marker for this number
+          const dotNum = wireless.replace(/(\d{3})(\d{3})(\d{4})/, '$1.$2.$3');
+          // Look for: X.XXGB near this number in the usage section
+          const usageSection = text.substring(text.indexOf('Usage summary'));
+          if (usageSection) {
+            const numIdx = usageSection.indexOf(dotNum);
+            if (numIdx >= 0) {
+              const nearby = usageSection.substring(numIdx, numIdx + 200);
+              const gbMatch = nearby.match(/([\d.]+)GB/);
+              const txtMatch = nearby.match(/(\d[\d,]*)\s*\(unlimited\)/g);
+              if (gbMatch) {
+                profiles[wireless].dataGB = parseFloat(gbMatch[1]) || 0;
+                console.log('[PDF-SUMMARY] Fallback usage for', wireless, ':', profiles[wireless].dataGB, 'GB');
+              }
+              if (txtMatch && txtMatch.length >= 2) {
+                // First (unlimited) after GB is text, second is talk
+                const textVal = txtMatch[0].match(/(\d[\d,]*)/);
+                const talkVal = txtMatch[1].match(/(\d[\d,]*)/);
+                if (textVal) profiles[wireless].textCount = parseInt(textVal[1].replace(/,/g, ''), 10) || 0;
+                if (talkVal) profiles[wireless].talkMinutes = parseInt(talkVal[1].replace(/,/g, ''), 10) || 0;
+              }
+            }
+          }
+        }
       }
 
       // Billing period
@@ -138,6 +174,11 @@ window.BillPDFParser = (function () {
       if (periodMatch) billingPeriod = `${periodMatch[1]} - ${periodMatch[2]}`;
 
       if (Object.keys(profiles).length > 0) break;
+    }
+
+    console.log('[PDF-SUMMARY] Final profiles:', Object.keys(profiles).length);
+    for (const [wn, p] of Object.entries(profiles)) {
+      console.log('[PDF-SUMMARY]', wn, '→ data:', p.dataGB, 'GB, text:', p.textCount, ', talk:', p.talkMinutes, ', plan$:', p.planCharge);
     }
 
     return { profiles, billingPeriod };
@@ -290,6 +331,10 @@ window.BillPDFParser = (function () {
       const talkMin = s.talkMinutes || d.talkMinutes || 0;
       const textCnt = s.textCount || d.textCount || 0;
 
+      console.log('[MERGE]', wireless, '→ summary data:', s.dataGB, '/ detail data:', d.dataGB, '→ final:', dataGB,
+        '| talk: s=', s.talkMinutes, 'd=', d.talkMinutes, '→', talkMin,
+        '| text: s=', s.textCount, 'd=', d.textCount, '→', textCnt);
+
       // Zero usage: per AT&T audit skill rules
       // Phone/Smartphone: 0 data + 0 voice + 0 messages
       // Tablet/Connected device: 0 data only
@@ -300,6 +345,7 @@ window.BillPDFParser = (function () {
       } else {
         isZeroUsage = dataGB === 0 && talkMin === 0 && textCnt === 0;
       }
+      console.log('[MERGE]', wireless, 'deviceType:', devType, 'zeroUsage:', isZeroUsage);
 
       // MRC = plan charge ONLY (not equipment, not one-time, not taxes)
       const mrc = s.planCharge || d.planCharge || 0;
