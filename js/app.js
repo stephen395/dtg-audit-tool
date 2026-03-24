@@ -243,11 +243,11 @@
     const zu = data.zeroUsageSummary;
     const inv = ur.inventory;
 
-    // Spend Overview
-    setKPI('kpi-total-spend', fmtMoney(ur.summary.totalCharges));
+    // Spend Overview — use MRC (plan cost only), not total charges
+    setKPI('kpi-total-spend', fmtMoney(ur.summary.totalMRC));
     setKPI('kpi-avg-cost', fmtMoney(ur.summary.avgChargesPerLine));
-    // Calculate surcharges from actual tax/fee fields
-    const totalTaxesFees = Object.values(data.profiles).reduce((s, p) => s + (p.latestTaxes || 0) + (p.latestFees || 0), 0);
+    // Surcharges from actual tax/fee fields
+    const totalTaxesFees = Object.values(data.profiles).reduce((s, p) => s + (p.taxes || p.latestTaxes || 0) + (p.fees || p.latestFees || 0), 0);
     setKPI('kpi-surcharges', fmtMoney(totalTaxesFees));
     setKPI('kpi-equipment', fmtMoney(ur.summary.totalEquipment));
 
@@ -256,6 +256,10 @@
     setKPI('kpi-smartphones', inv.smartphones);
     setKPI('kpi-tablets', inv.tablets);
     setKPI('kpi-wearables', inv.watches + inv.hotspots);
+
+    // Upgrade eligibility
+    setKPI('kpi-upgrade-eligible', ur.summary.upgradeEligible || 0);
+    setKPI('kpi-in-contract', ur.summary.inContract || 0);
 
     // Savings
     setKPI('kpi-total-savings', fmtMoney(zu.totalMonthlySavings));
@@ -385,28 +389,51 @@
     const panel = document.getElementById('tab-usage-report');
     if (!panel) return;
 
-    let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary)">
-      ${data.usageReport.summary.totalLines} lines | Total: ${fmtMoney(data.usageReport.summary.totalCharges)} | Avg: ${fmtMoney(data.usageReport.summary.avgChargesPerLine)}/line
+    const ur = data.usageReport;
+    const upgradeCount = ur.summary.upgradeEligible || 0;
+    const contractCount = ur.summary.inContract || 0;
+
+    let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+      <span>${ur.summary.totalLines} lines</span>
+      <span>Total MRC: ${fmtMoney(ur.summary.totalMRC)}</span>
+      <span>Avg: ${fmtMoney(ur.summary.avgChargesPerLine)}/line</span>
+      <span style="color:#22c55e;font-weight:600">${upgradeCount} upgrade eligible</span>
+      <span style="color:#ef4444">${contractCount} in contract</span>
     </div>
     <div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#1a3a5c;color:#fff">
-        <th style="padding:8px">Wireless</th><th style="padding:8px">User Name</th><th style="padding:8px">Device</th><th style="padding:8px">Rate Plan</th>
-        <th style="padding:8px">Data (GB)</th><th style="padding:8px">Voice (min)</th><th style="padding:8px">Messages</th>
-        <th style="padding:8px">Monthly</th><th style="padding:8px">Total</th><th style="padding:8px">Zero?</th>
+      <thead><tr style="background:#1a3a5c;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:8px 10px">Wireless</th>
+        <th style="padding:8px 10px">User Name</th>
+        <th style="padding:8px 10px">Device</th>
+        <th style="padding:8px 10px">Rate Plan</th>
+        <th style="padding:8px 10px;text-align:right">MRC</th>
+        <th style="padding:8px 10px;text-align:right">Data (GB)</th>
+        <th style="padding:8px 10px;text-align:right">Voice</th>
+        <th style="padding:8px 10px;text-align:right">Text</th>
+        <th style="padding:8px 10px;text-align:center">Contract?</th>
+        <th style="padding:8px 10px">Installment</th>
+        <th style="padding:8px 10px;text-align:right">Equip $/mo</th>
+        <th style="padding:8px 10px">Zero?</th>
       </tr></thead><tbody>`;
 
-    for (const l of data.usageReport.lines) {
+    for (const l of ur.lines) {
+      const contractBadge = l.hasActiveContract
+        ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
+        : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
+
       html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-        <td style="padding:6px 8px">${l.wireless}</td>
-        <td style="padding:6px 8px">${l.userName}</td>
-        <td style="padding:6px 8px">${l.deviceType || ''}</td>
-        <td style="padding:6px 8px" title="${l.ratePlan}">${(l.ratePlan || '').substring(0, 35)}</td>
-        <td style="padding:6px 8px;text-align:right">${l.gbTotal.toFixed(2)}</td>
-        <td style="padding:6px 8px;text-align:right">${l.minTotal || 0}</td>
-        <td style="padding:6px 8px;text-align:right">${l.msgTotal || 0}</td>
-        <td style="padding:6px 8px;text-align:right">${fmtMoney(l.monthlyCharges)}</td>
-        <td style="padding:6px 8px;text-align:right">${fmtMoney(l.totalCharges)}</td>
-        <td style="padding:6px 8px;${l.zeroUsage ? 'color:#ef4444;font-weight:600' : ''}">${l.zeroUsage ? 'YES' : ''}</td>
+        <td style="padding:6px 10px;font-variant-numeric:tabular-nums">${l.wireless}</td>
+        <td style="padding:6px 10px">${l.userName}</td>
+        <td style="padding:6px 10px">${l.deviceType || ''}</td>
+        <td style="padding:6px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.ratePlan}">${l.ratePlan || ''}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(l.mrc)}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${l.gbTotal.toFixed(2)}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${l.minTotal || 0}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${l.msgTotal || 0}</td>
+        <td style="padding:6px 10px;text-align:center">${contractBadge}</td>
+        <td style="padding:6px 10px;font-size:11px">${l.equipmentInstallment || '-'}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${l.equipmentCharges > 0 ? fmtMoney(l.equipmentCharges) : '-'}</td>
+        <td style="padding:6px 10px;${l.zeroUsage ? 'color:#ef4444;font-weight:600' : ''}">${l.zeroUsage ? 'YES' : ''}</td>
       </tr>`;
     }
     html += '</tbody></table></div>';

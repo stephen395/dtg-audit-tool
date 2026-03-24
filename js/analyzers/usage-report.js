@@ -1,6 +1,7 @@
 /**
  * Usage Report Generator
  * Produces the full line inventory with usage data and device type breakdown.
+ * Works with both CSV-parsed profiles and PDF-parsed profiles.
  */
 
 window.UsageReportAnalyzer = (function () {
@@ -17,11 +18,18 @@ window.UsageReportAnalyzer = (function () {
     for (const [wn, p] of Object.entries(profiles)) {
       if (p.status === 'Cancelled') continue;
 
+      // Normalize field names — CSV uses latestMonthly, PDF uses mrc
+      const mrc = p.mrc || p.latestMonthly || p.monthlyCharges || 0;
+      const equipCharge = p.equipment || p.equipmentCharges || p.monthlyInstallment || p.equipmentCharge || 0;
+      const totalCharges = p.totalCharges || p.latestTotal || 0;
+      const taxes = p.taxes || p.latestTaxes || 0;
+      const fees = p.fees || p.latestFees || 0;
+
       const line = {
         wireless: wn,
-        userName: p.userName,
+        userName: p.userName || 'Unknown',
         deviceType: p.deviceType || 'Unknown',
-        ratePlan: p.ratePlan,
+        ratePlan: p.ratePlan || '',
         ban: p.ban || '',
         costCenter: p.costCenter || '',
 
@@ -33,17 +41,28 @@ window.UsageReportAnalyzer = (function () {
         msgTotal: p.msgTotal || p.totalMsg90d || 0,
         msgAvg: p.msgAvg || 0,
 
-        // Charges
-        monthlyCharges: p.latestMonthly || 0,
-        equipmentCharges: p.equipmentCharges || p.monthlyInstallment || 0,
-        totalCharges: p.latestTotal || p.mrc || 0,
-        taxes: p.latestTaxes || 0,
-        fees: p.latestFees || 0,
+        // Charges — normalized
+        mrc: mrc,
+        monthlyCharges: mrc,
+        equipmentCharges: equipCharge,
+        totalCharges: totalCharges,
+        taxes: taxes,
+        fees: fees,
+        activityCharges: p.activityCharges || 0,
+        oneTimeCharges: p.oneTimeCharges || [],
+
+        // Equipment details (from PDF)
+        equipmentName: p.equipmentName || '',
+        equipmentInstallment: p.equipmentInstallment || '',
+        equipmentFinanced: p.equipmentFinanced || 0,
+        equipmentRemaining: p.equipmentRemaining || 0,
+        equipmentEstablished: p.equipmentEstablished || '',
 
         // Flags
         zeroUsage: p.zeroUsage,
         hasActiveContract: p.hasActiveContract,
-        contractEnd: p.contractEnd || '',
+        contractEnd: p.contractEnd || p.contractEndDate || '',
+        contractType: p.contractType || '',
       };
 
       lines.push(line);
@@ -51,7 +70,7 @@ window.UsageReportAnalyzer = (function () {
       // Inventory count
       inventory.total++;
       const dt = (line.deviceType || '').toLowerCase();
-      if (dt.includes('smartphone') || dt.includes('phone')) inventory.smartphones++;
+      if (dt.includes('smartphone') || dt === 'phone') inventory.smartphones++;
       else if (dt.includes('tablet')) inventory.tablets++;
       else if (dt.includes('hotspot') || dt.includes('jetpack') || dt.includes('data device')) inventory.hotspots++;
       else if (dt.includes('watch') || dt.includes('wearable')) inventory.watches++;
@@ -66,14 +85,24 @@ window.UsageReportAnalyzer = (function () {
     });
 
     // Summary stats
+    const totalMRC = lines.reduce((s, l) => s + l.mrc, 0);
+    const totalEquip = lines.reduce((s, l) => s + l.equipmentCharges, 0);
+    const totalChargesAll = lines.reduce((s, l) => s + l.totalCharges, 0);
+    const upgradeEligible = lines.filter(l => !l.hasActiveContract && l.deviceType.toLowerCase().includes('phone')).length;
+    const inContract = lines.filter(l => l.hasActiveContract).length;
+
     const summary = {
       totalLines: lines.length,
-      totalMonthlyCharges: lines.reduce((s, l) => s + l.monthlyCharges, 0),
-      totalCharges: lines.reduce((s, l) => s + l.totalCharges, 0),
-      totalEquipment: lines.reduce((s, l) => s + l.equipmentCharges, 0),
+      totalMRC: totalMRC,
+      totalMonthlyCharges: totalMRC,
+      totalCharges: totalChargesAll,
+      totalEquipment: totalEquip,
       zeroUsageCount: lines.filter(l => l.zeroUsage).length,
       zeroUsagePercent: lines.length > 0 ? (lines.filter(l => l.zeroUsage).length / lines.length * 100) : 0,
-      avgChargesPerLine: lines.length > 0 ? lines.reduce((s, l) => s + l.totalCharges, 0) / lines.length : 0,
+      avgChargesPerLine: lines.length > 0 ? totalMRC / lines.length : 0,
+      upgradeEligible: upgradeEligible,
+      inContract: inContract,
+      outOfContract: lines.length - inContract,
     };
 
     return { lines, inventory, summary };
