@@ -366,56 +366,75 @@
   // POPULATE RATE PLAN TABLE
   // ═══════════════════════════════════════════════════════
   function populateRatePlanTable(data) {
-    const panel = document.getElementById('tab-rate-plans');
-    if (!panel) return;
+    // Populate the existing summary table
+    const tbody = document.getElementById('rateplan-summary-tbody');
+    const countEl = document.getElementById('rateplan-summary-count');
+    const emptyEl = document.getElementById('rateplan-summary-empty');
 
-    let html = `<style>
-      .rp-table { width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; }
-      .rp-table th, .rp-table td { padding:8px 12px; }
-      .rp-table th { background:#1a3a5c; color:#fff; font-size:11px; text-transform:uppercase; letter-spacing:0.03em; }
-      .rp-table td { border-bottom:1px solid rgba(255,255,255,0.05); }
-      .rp-table tr:hover { background:rgba(255,255,255,0.03); }
-      .rp-table .col-plan { width:40%; text-align:left; }
-      .rp-table .col-num { width:12%; text-align:right; font-variant-numeric:tabular-nums; }
-    </style>
-    <div style="overflow-x:auto"><table class="rp-table">
-      <thead><tr>
-        <th class="col-plan">Rate Plan</th>
-        <th class="col-num"># Lines</th>
-        <th class="col-num">Total Monthly</th>
-        <th class="col-num">Per Line</th>
-        <th class="col-num">Zero Usage</th>
-        <th class="col-num">% Zero</th>
-      </tr></thead><tbody>`;
+    if (countEl) countEl.textContent = `${data.ratePlans.summary.uniquePlans} plans | ${data.ratePlans.summary.totalLines} lines`;
 
-    for (const p of data.ratePlans.plans) {
-      const hi = p.zeroUsagePercent > 30;
-      html += `<tr>
-        <td class="col-plan">${p.planName}</td>
-        <td class="col-num">${p.lineCount}</td>
-        <td class="col-num">${fmtMoney(p.totalMonthly)}</td>
-        <td class="col-num">${fmtMoney(p.perLine)}</td>
-        <td class="col-num">${p.zeroUsageLines}</td>
-        <td class="col-num" style="${hi ? 'color:#ef4444;font-weight:600' : ''}">${p.zeroUsagePercent.toFixed(0)}%</td>
+    if (tbody) {
+      let html = '';
+      for (const p of data.ratePlans.plans) {
+        const hi = p.zeroUsagePercent > 30;
+        // Check if plan exists in the rate plan database
+        const allPlans = window.RatePlanLogger.getAllPlans();
+        const dbMatch = allPlans.find(lp => lp.planName === p.planName && lp.carrier === data.carrier);
+        const matchBadge = dbMatch
+          ? `<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 6px;border-radius:4px;font-size:10px">KNOWN</span>`
+          : `<span style="background:rgba(247,147,30,0.15);color:#f7931e;padding:2px 6px;border-radius:4px;font-size:10px">NEW</span>`;
+
+        html += `<tr>
+          <td>${p.planName}</td>
+          <td class="number">${p.lineCount}</td>
+          <td class="number">${fmtMoney(p.perLine)}</td>
+          <td class="number">${fmtMoney(p.totalMonthly)}</td>
+          <td style="text-align:center">${matchBadge}</td>
+        </tr>`;
+      }
+      // Total row
+      html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
+        <td>TOTAL</td>
+        <td class="number">${data.ratePlans.summary.totalLines}</td>
+        <td class="number">${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</td>
+        <td class="number">${fmtMoney(data.ratePlans.summary.totalMonthly)}</td>
+        <td></td>
       </tr>`;
+      tbody.innerHTML = html;
+      if (emptyEl) emptyEl.classList.add('hidden');
     }
-    html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
-      <td class="col-plan">TOTAL</td>
-      <td class="col-num">${data.ratePlans.summary.totalLines}</td>
-      <td class="col-num">${fmtMoney(data.ratePlans.summary.totalMonthly)}</td>
-      <td class="col-num">${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</td>
-      <td class="col-num"></td>
-      <td class="col-num"></td>
-    </tr>`;
-    html += '</tbody></table></div>';
 
-    const stats = window.RatePlanLogger.getStats();
-    html += `<div style="margin-top:20px;padding:14px;background:#1e1f2a;border-radius:10px;border:1px solid rgba(255,255,255,0.08)">
-      <strong>Rate Plan Database</strong><br>
-      <span style="color:#6b6b76;font-size:12px">${stats.totalPlans} unique plans logged across ${stats.clients.length} client(s)</span>
-    </div>`;
+    // Populate the log viewer
+    const logViewer = document.getElementById('rateplan-log-viewer');
+    if (logViewer) {
+      const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+      let logHtml = '';
 
-    panel.innerHTML = html;
+      // Log each plan
+      for (const p of data.ratePlans.plans) {
+        const allPlans = window.RatePlanLogger.getAllPlans();
+        const dbMatch = allPlans.find(lp => lp.planName === p.planName && lp.carrier === data.carrier);
+        const type = dbMatch && dbMatch.occurrences > 1 ? 'match' : 'miss';
+        const typeLabel = type === 'match' ? 'MATCH' : 'NEW';
+        const typeClass = type === 'match' ? 'success' : 'warning';
+
+        logHtml += `<div class="log-entry">
+          <span class="log-entry-time">${now}</span>
+          <span class="log-entry-type ${typeClass}">${typeLabel}</span>
+          <span class="log-entry-msg">${p.planName} — ${p.lineCount} lines @ ${fmtMoney(p.perLine)}/line${dbMatch ? ` (seen ${dbMatch.occurrences}x across ${dbMatch.clients.length} client(s))` : ' — first time seeing this plan'}</span>
+        </div>`;
+      }
+
+      // Summary entry
+      const stats = window.RatePlanLogger.getStats();
+      logHtml += `<div class="log-entry">
+        <span class="log-entry-time">${now}</span>
+        <span class="log-entry-type info">INFO</span>
+        <span class="log-entry-msg">Rate Plan Database: ${stats.totalPlans} unique plans logged across ${stats.clients.length} client(s). ${data.ratePlans.plans.length} plans processed this audit.</span>
+      </div>`;
+
+      logViewer.innerHTML = logHtml;
+    }
   }
 
   // ═══════════════════════════════════════════════════════
@@ -425,7 +444,7 @@
     const pdfBtn = document.getElementById('btn-export-pdf');
     const xlsBtn = document.getElementById('btn-export-excel');
     const csvBtn = document.getElementById('btn-export-csv');
-    const planBtn = document.getElementById('btn-export-plandb');
+    const planBtn = document.getElementById('btn-export-ratedb');
 
     if (pdfBtn) {
       pdfBtn.disabled = false;
