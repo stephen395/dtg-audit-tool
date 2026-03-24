@@ -217,8 +217,58 @@
   // POPULATE ZERO USAGE TABLE
   // ═══════════════════════════════════════════════════════
   function populateZeroUsageTable(data) {
-    // Always inject our own table — the pre-built one has different columns
-    injectZeroUsageTable(data);
+    const tbody = document.getElementById('zero-usage-tbody');
+    const countEl = document.getElementById('zero-usage-table-count');
+    const badgeEl = document.getElementById('zero-usage-count');
+    const emptyEl = document.getElementById('zero-usage-empty');
+    const zu = data.zeroUsageSummary;
+
+    // Update count badge on tab
+    if (badgeEl) badgeEl.textContent = data.zeroUsageResults.length;
+    if (countEl) countEl.textContent = `${data.zeroUsageResults.length} lines | Save ${fmtMoney(zu.cancelSavings)}/mo by canceling out-of-contract`;
+
+    if (!tbody) {
+      console.warn('[AUDIT] zero-usage-tbody not found, falling back to inject');
+      injectZeroUsageTable(data);
+      return;
+    }
+
+    if (data.zeroUsageResults.length === 0) {
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    let html = '';
+    for (const r of data.zeroUsageResults) {
+      const actionColor = r.action.includes('CANCEL') ? '#ef4444' : (r.action === 'SUSPEND' ? '#f59e0b' : '#6b6b76');
+      const contractBadge = r.hasActiveContract
+        ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
+        : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
+
+      html += `<tr>
+        <td>${r.wireless}</td>
+        <td>${r.userName}</td>
+        <td>${r.deviceType || ''}</td>
+        <td title="${r.ratePlan}">${(r.ratePlan || '').substring(0, 40)}</td>
+        <td class="number">${fmtMoney(r.mrc || 0)}</td>
+        <td style="text-align:center">${contractBadge}</td>
+        <td>${r.contractEnd || 'N/A'}</td>
+        <td style="color:${actionColor};font-weight:600">${r.action}</td>
+        <td style="font-size:11px;color:#a1a1aa;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
+        <td class="number" style="color:#22c55e;font-weight:600">${fmtMoney(r.monthlySavings || 0)}</td>
+      </tr>`;
+    }
+
+    // Total row
+    html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
+      <td colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
+      <td class="number">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
+      <td colspan="4"></td>
+      <td class="number" style="color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+    </tr>`;
+
+    tbody.innerHTML = html;
   }
 
   function injectZeroUsageTable(data) {
