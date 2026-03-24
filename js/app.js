@@ -317,29 +317,43 @@
     const panel = document.getElementById('tab-rate-plans');
     if (!panel) return;
 
-    let html = `<div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#1a3a5c;color:#fff">
-        <th style="padding:8px">Rate Plan</th><th style="padding:8px"># Lines</th><th style="padding:8px">Total Monthly</th><th style="padding:8px">Per Line</th>
-        <th style="padding:8px">Zero Usage</th><th style="padding:8px">% Zero</th>
+    let html = `<style>
+      .rp-table { width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed; }
+      .rp-table th, .rp-table td { padding:8px 12px; }
+      .rp-table th { background:#1a3a5c; color:#fff; font-size:11px; text-transform:uppercase; letter-spacing:0.03em; }
+      .rp-table td { border-bottom:1px solid rgba(255,255,255,0.05); }
+      .rp-table tr:hover { background:rgba(255,255,255,0.03); }
+      .rp-table .col-plan { width:40%; text-align:left; }
+      .rp-table .col-num { width:12%; text-align:right; font-variant-numeric:tabular-nums; }
+    </style>
+    <div style="overflow-x:auto"><table class="rp-table">
+      <thead><tr>
+        <th class="col-plan">Rate Plan</th>
+        <th class="col-num"># Lines</th>
+        <th class="col-num">Total Monthly</th>
+        <th class="col-num">Per Line</th>
+        <th class="col-num">Zero Usage</th>
+        <th class="col-num">% Zero</th>
       </tr></thead><tbody>`;
 
     for (const p of data.ratePlans.plans) {
       const hi = p.zeroUsagePercent > 30;
-      html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-        <td style="padding:6px 8px">${p.planName}</td>
-        <td style="padding:6px 8px;text-align:right">${p.lineCount}</td>
-        <td style="padding:6px 8px;text-align:right">${fmtMoney(p.totalMonthly)}</td>
-        <td style="padding:6px 8px;text-align:right">${fmtMoney(p.perLine)}</td>
-        <td style="padding:6px 8px;text-align:right">${p.zeroUsageLines}</td>
-        <td style="padding:6px 8px;text-align:right;${hi ? 'color:#ef4444;font-weight:600' : ''}">${p.zeroUsagePercent.toFixed(0)}%</td>
+      html += `<tr>
+        <td class="col-plan">${p.planName}</td>
+        <td class="col-num">${p.lineCount}</td>
+        <td class="col-num">${fmtMoney(p.totalMonthly)}</td>
+        <td class="col-num">${fmtMoney(p.perLine)}</td>
+        <td class="col-num">${p.zeroUsageLines}</td>
+        <td class="col-num" style="${hi ? 'color:#ef4444;font-weight:600' : ''}">${p.zeroUsagePercent.toFixed(0)}%</td>
       </tr>`;
     }
-    html += `<tr style="background:rgba(34,197,94,0.1)">
-      <td style="padding:8px"><strong>TOTAL</strong></td>
-      <td style="padding:8px;text-align:right"><strong>${data.ratePlans.summary.totalLines}</strong></td>
-      <td style="padding:8px;text-align:right"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly)}</strong></td>
-      <td style="padding:8px;text-align:right"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</strong></td>
-      <td></td><td></td>
+    html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
+      <td class="col-plan">TOTAL</td>
+      <td class="col-num">${data.ratePlans.summary.totalLines}</td>
+      <td class="col-num">${fmtMoney(data.ratePlans.summary.totalMonthly)}</td>
+      <td class="col-num">${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</td>
+      <td class="col-num"></td>
+      <td class="col-num"></td>
     </tr>`;
     html += '</tbody></table></div>';
 
