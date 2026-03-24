@@ -195,7 +195,9 @@
     // Spend Overview
     setKPI('kpi-total-spend', fmtMoney(ur.summary.totalCharges));
     setKPI('kpi-avg-cost', fmtMoney(ur.summary.avgChargesPerLine));
-    setKPI('kpi-surcharges', fmtMoney(ur.summary.totalCharges - ur.summary.totalMonthlyCharges - ur.summary.totalEquipment));
+    // Calculate surcharges from actual tax/fee fields
+    const totalTaxesFees = Object.values(data.profiles).reduce((s, p) => s + (p.latestTaxes || 0) + (p.latestFees || 0), 0);
+    setKPI('kpi-surcharges', fmtMoney(totalTaxesFees));
     setKPI('kpi-equipment', fmtMoney(ur.summary.totalEquipment));
 
     // Inventory
