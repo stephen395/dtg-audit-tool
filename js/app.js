@@ -254,8 +254,8 @@
     // Inventory
     setKPI('kpi-total-lines', inv.total);
     setKPI('kpi-smartphones', inv.smartphones);
-    setKPI('kpi-tablets', inv.tablets);
-    setKPI('kpi-wearables', inv.watches + inv.hotspots);
+    setKPI('kpi-tablets', inv.tablets + inv.hotspots);
+    setKPI('kpi-wearables', inv.watches);
 
     // Upgrade eligibility
     setKPI('kpi-upgrade-eligible', ur.summary.upgradeEligible || 0);
