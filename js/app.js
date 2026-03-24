@@ -217,64 +217,60 @@
   // POPULATE ZERO USAGE TABLE
   // ═══════════════════════════════════════════════════════
   function populateZeroUsageTable(data) {
-    const tbody = document.querySelector('#tab-zero-usage .data-table tbody');
-    if (!tbody) {
-      console.warn('[AUDIT] Zero usage tbody not found, injecting table');
-      injectZeroUsageTable(data);
-      return;
-    }
-
-    tbody.innerHTML = '';
-    for (const r of data.zeroUsageResults) {
-      const tr = document.createElement('tr');
-      const cls = r.action.includes('CANCEL') ? 'color:#ef4444;font-weight:600' : (r.action === 'SUSPEND' ? 'color:#f59e0b;font-weight:600' : '');
-      tr.innerHTML = `
-        <td>${r.wireless}</td>
-        <td>${r.userName}</td>
-        <td>${r.deviceType || ''}</td>
-        <td title="${r.ratePlan}">${(r.ratePlan || '').substring(0, 35)}</td>
-        <td style="text-align:right">${(r.gbTotal || 0).toFixed(2)}</td>
-        <td style="text-align:right">${r.minTotal || r.totalMin90d || 0}</td>
-        <td style="text-align:right">${r.msgTotal || r.totalMsg90d || 0}</td>
-        <td style="text-align:right">${fmtMoney(r.mrc || 0)}</td>
-        <td>${r.contractEnd || ''}</td>
-        <td style="${cls}" title="${r.reason}">${r.action}</td>
-        <td style="text-align:right;color:#22c55e">${fmtMoney(r.monthlySavings || 0)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
+    // Always inject our own table — the pre-built one has different columns
+    injectZeroUsageTable(data);
   }
 
   function injectZeroUsageTable(data) {
     const panel = document.getElementById('tab-zero-usage');
     if (!panel) return;
 
+    const zu = data.zeroUsageSummary;
     let html = `<div style="margin-bottom:12px;padding:12px 16px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#22c55e;font-weight:600">
-      Cancelling out-of-contract lines could save → ${fmtMoney(data.zeroUsageSummary.cancelSavings)}/month | ${data.zeroUsageSummary.totalZeroUsage} zero usage lines
+      Cancelling out-of-contract lines could save → ${fmtMoney(zu.cancelSavings)}/month | ${zu.totalZeroUsage} zero usage lines | ${zu.outOfContract} out of contract
     </div>
     <div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#1a3a5c;color:#fff">
-        <th style="padding:8px">Wireless</th><th style="padding:8px">User Name</th><th style="padding:8px">Device</th><th style="padding:8px">Rate Plan</th>
-        <th style="padding:8px">90d GB</th><th style="padding:8px">90d Min</th><th style="padding:8px">90d Msg</th>
-        <th style="padding:8px">MRC</th><th style="padding:8px">Contract End</th><th style="padding:8px">Action</th><th style="padding:8px">Savings/mo</th>
+      <thead><tr style="background:#1a3a5c;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:8px 10px">Number</th>
+        <th style="padding:8px 10px">User Name</th>
+        <th style="padding:8px 10px">Device</th>
+        <th style="padding:8px 10px">Rate Plan</th>
+        <th style="padding:8px 10px;text-align:right">MRC</th>
+        <th style="padding:8px 10px;text-align:center">Contract?</th>
+        <th style="padding:8px 10px">Contract End</th>
+        <th style="padding:8px 10px">Action</th>
+        <th style="padding:8px 10px">Reason</th>
+        <th style="padding:8px 10px;text-align:right">Savings/mo</th>
       </tr></thead><tbody>`;
 
     for (const r of data.zeroUsageResults) {
-      const cls = r.action.includes('CANCEL') ? 'color:#ef4444;font-weight:600' : (r.action === 'SUSPEND' ? 'color:#f59e0b;font-weight:600' : '');
+      const actionColor = r.action.includes('CANCEL') ? '#ef4444' : (r.action === 'SUSPEND' ? '#f59e0b' : '#6b6b76');
+      const contractBadge = r.hasActiveContract
+        ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
+        : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
+
       html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-        <td style="padding:6px 8px">${r.wireless}</td>
-        <td style="padding:6px 8px">${r.userName}</td>
-        <td style="padding:6px 8px">${r.deviceType || ''}</td>
-        <td style="padding:6px 8px" title="${r.ratePlan}">${(r.ratePlan || '').substring(0, 35)}</td>
-        <td style="padding:6px 8px;text-align:right">${(r.gbTotal || 0).toFixed(2)}</td>
-        <td style="padding:6px 8px;text-align:right">${r.minTotal || r.totalMin90d || 0}</td>
-        <td style="padding:6px 8px;text-align:right">${r.msgTotal || r.totalMsg90d || 0}</td>
-        <td style="padding:6px 8px;text-align:right">${fmtMoney(r.mrc || 0)}</td>
-        <td style="padding:6px 8px">${r.contractEnd || ''}</td>
-        <td style="padding:6px 8px;${cls}" title="${r.reason}">${r.action}</td>
-        <td style="padding:6px 8px;text-align:right;color:#22c55e">${fmtMoney(r.monthlySavings || 0)}</td>
+        <td style="padding:6px 10px;font-variant-numeric:tabular-nums">${r.wireless}</td>
+        <td style="padding:6px 10px">${r.userName}</td>
+        <td style="padding:6px 10px">${r.deviceType || ''}</td>
+        <td style="padding:6px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.ratePlan}">${r.ratePlan || ''}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(r.mrc || 0)}</td>
+        <td style="padding:6px 10px;text-align:center">${contractBadge}</td>
+        <td style="padding:6px 10px">${r.contractEnd || 'N/A'}</td>
+        <td style="padding:6px 10px;color:${actionColor};font-weight:600">${r.action}</td>
+        <td style="padding:6px 10px;font-size:11px;color:#a1a1aa;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">${fmtMoney(r.monthlySavings || 0)}</td>
       </tr>`;
     }
+
+    // Total row
+    html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
+      <td style="padding:8px 10px" colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
+      <td style="padding:8px 10px;text-align:right">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
+      <td colspan="4"></td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+    </tr>`;
+
     html += '</tbody></table></div>';
     panel.innerHTML = html;
   }
