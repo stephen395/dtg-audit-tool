@@ -64,12 +64,19 @@
         }
 
         profiles = billData.lineProfiles;
+        const bm = billData.billMeta || {};
         meta = {
           source: 'pdf',
           accountNumber: billData.accountInfo.accountNumber,
           accountName: billData.accountInfo.accountName,
+          foundationAccount: billData.accountInfo.foundationAccount,
+          invoice: billData.accountInfo.invoice,
+          issueDate: billData.accountInfo.issueDate,
           totalDue: billData.accountInfo.totalDue,
-          billingPeriods: billData.accountInfo.billingPeriod ? [billData.accountInfo.billingPeriod] : [],
+          lastBillAmount: bm.lastBillAmount || 0,
+          autoPayDate: bm.autoPayDate || '',
+          billingPeriods: bm.billingPeriod ? [bm.billingPeriod] : [],
+          billingCycles: bm.billingPeriod ? [bm.billingPeriod] : [],
           pdfPages: billData.pageCount,
         };
 
