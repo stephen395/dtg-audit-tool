@@ -58,8 +58,12 @@ window.UsageReportAnalyzer = (function () {
       else inventory.other++;
     }
 
-    // Sort by total charges descending
-    lines.sort((a, b) => b.totalCharges - a.totalCharges);
+    // Sort by data usage descending (highest usage at top, zero usage at bottom)
+    lines.sort((a, b) => {
+      const usageA = a.gbTotal + (a.minTotal || 0) / 1000 + (a.msgTotal || 0) / 1000;
+      const usageB = b.gbTotal + (b.minTotal || 0) / 1000 + (b.msgTotal || 0) / 1000;
+      return usageB - usageA;
+    });
 
     // Summary stats
     const summary = {
