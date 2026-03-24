@@ -104,6 +104,11 @@ window.ATTParser = (function () {
     for (const row of rows) {
       const wireless = cleanCol(row[colMap.wireless]);
       if (!wireless || wireless === 'nan' || wireless.length < 7) continue;
+      // Skip non-phone entries: Group IDs (start with G), account-level rows (0), discount lines
+      if (/^[A-Za-z]/.test(wireless)) continue;
+      if (wireless === '0') continue;
+      const ratePlan = cleanCol(row[colMap.rate_plan]);
+      if (ratePlan === 'NO CURRENT RATE PLAN' || ratePlan === 'NORATEPLAN') continue;
 
       lines.push({
         wireless,
