@@ -1953,7 +1953,7 @@
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
                                         Usage / Charges Report
-                                        <span class="badge required">Required</span>
+                                        <span class="badge optional">Required (or use PDF)</span>
                                     </div>
                                     <div class="upload-zone-desc">Primary billing and usage data. Accepts CSV or TXT format.</div>
                                     <div class="upload-zone-action">
@@ -2065,7 +2065,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                                 Run Audit
                             </button>
-                            <div class="upload-sidebar-hint">Upload the required usage report to begin</div>
+                            <div class="upload-sidebar-hint">Upload a usage report OR bill PDF to begin. Small accounts can use PDF only.</div>
                         </div>
                     </div>
                 </div>
@@ -2778,7 +2778,8 @@
             document.getElementById('check-pdf').classList.toggle('checked', !!state.files.pdf);
 
             const btn = document.getElementById('btn-run-audit');
-            btn.disabled = !state.files.usage;
+            // Allow audit with EITHER usage CSV OR bill PDF (for small accounts)
+            btn.disabled = !(state.files.usage || state.files.pdf);
         }
 
         document.getElementById('btn-run-audit').addEventListener('click', () => {

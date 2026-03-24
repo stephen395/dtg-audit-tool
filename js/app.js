@@ -32,52 +32,96 @@
       const carrier = uiState.carrier;
       const clientName = uiState.clientName || 'Client';
 
-      // Parse CSV/TXT files with PapaParse
-      const parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
-      const parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
+      // Determine if this is a PDF-only audit (no CSV files)
+      const hasCsvFiles = !!uiState.files.usage;
+      const hasPdf = !!uiState.files.pdf;
+      const pdfOnlyMode = !hasCsvFiles && hasPdf;
 
-      console.log('[AUDIT] Carrier:', carrier);
-      console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
-      console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
+      console.log('[AUDIT] Mode:', pdfOnlyMode ? 'PDF-ONLY' : 'CSV + optional PDF');
 
-      DTG.updateProcessingProgress(25);
-      DTG.updateProcessingStatus('Building line profiles...');
+      let profiles, meta;
 
-      // Run carrier-specific parser
-      let result;
-      if (carrier === 'att') {
-        result = window.ATTParser.parse(
-          parsedUsage ? parsedUsage.rows : [],
-          parsedUpgrade ? parsedUpgrade.rows : null
-        );
-      } else if (carrier === 'verizon') {
-        const files = [];
-        if (parsedUsage) {
-          const type = window.VerizonParser.detectFileType(parsedUsage.headers) || 'wirelessSummary';
-          files.push({ type, rows: parsedUsage.rows });
+      if (pdfOnlyMode) {
+        // ── PDF-ONLY AUDIT (small accounts) ──
+        DTG.updateProcessingStatus('Reading bill PDF (this may take a moment for large bills)...');
+        DTG.updateProcessingProgress(15);
+
+        const billData = await window.BillPDFParser.parse(uiState.files.pdf, (current, total) => {
+          const pct = 15 + Math.round((current / total) * 50);
+          DTG.updateProcessingProgress(pct);
+          DTG.updateProcessingStatus(`Reading bill PDF... page ${current} of ${total}`);
+        });
+
+        console.log('[AUDIT] PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier);
+
+        if (!billData.lineProfiles || Object.keys(billData.lineProfiles).length === 0) {
+          throw new Error('Could not extract line-level data from this PDF. Try uploading CSV reports instead.');
         }
-        if (parsedUpgrade) {
-          const type = window.VerizonParser.detectFileType(parsedUpgrade.headers);
-          if (type) files.push({ type, rows: parsedUpgrade.rows });
+
+        // Override carrier if detected from PDF
+        if (billData.carrier !== 'unknown' && billData.carrier !== carrier) {
+          console.log('[AUDIT] Carrier override from PDF:', billData.carrier);
         }
-        result = window.VerizonParser.parse(files);
-      } else if (carrier === 'tmobile') {
-        result = window.TMobileParser.parse(parsedUsage ? parsedUsage.rows : []);
+
+        profiles = billData.lineProfiles;
+        meta = {
+          source: 'pdf',
+          accountNumber: billData.accountInfo.accountNumber,
+          accountName: billData.accountInfo.accountName,
+          totalDue: billData.accountInfo.totalDue,
+          billingPeriods: billData.accountInfo.billingPeriod ? [billData.accountInfo.billingPeriod] : [],
+          pdfPages: billData.pageCount,
+        };
+
+        console.log('[AUDIT] PDF profiles built:', Object.keys(profiles).length);
+
       } else {
-        throw new Error('Unknown carrier: ' + carrier);
+        // ── CSV-BASED AUDIT (standard) ──
+        const parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
+        const parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
+
+        console.log('[AUDIT] Carrier:', carrier);
+        console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
+        console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
+
+        DTG.updateProcessingProgress(25);
+        DTG.updateProcessingStatus('Building line profiles...');
+
+        let result;
+        if (carrier === 'att') {
+          result = window.ATTParser.parse(
+            parsedUsage ? parsedUsage.rows : [],
+            parsedUpgrade ? parsedUpgrade.rows : null
+          );
+        } else if (carrier === 'verizon') {
+          const files = [];
+          if (parsedUsage) {
+            const type = window.VerizonParser.detectFileType(parsedUsage.headers) || 'wirelessSummary';
+            files.push({ type, rows: parsedUsage.rows });
+          }
+          if (parsedUpgrade) {
+            const type = window.VerizonParser.detectFileType(parsedUpgrade.headers);
+            if (type) files.push({ type, rows: parsedUpgrade.rows });
+          }
+          result = window.VerizonParser.parse(files);
+        } else if (carrier === 'tmobile') {
+          result = window.TMobileParser.parse(parsedUsage ? parsedUsage.rows : []);
+        } else {
+          throw new Error('Unknown carrier: ' + carrier);
+        }
+
+        profiles = result.profiles;
+        meta = result.meta || {};
       }
 
-      const profiles = result.profiles;
-      const meta = result.meta || {};
       const profileCount = Object.keys(profiles).length;
-
       console.log('[AUDIT] Profiles built:', profileCount);
       if (profileCount > 0) {
         const sample = Object.values(profiles)[0];
         console.log('[AUDIT] Sample:', JSON.stringify({ w: sample.wireless, u: sample.userName, plan: sample.ratePlan, mrc: sample.mrc, zu: sample.zeroUsage, gb: sample.gbTotal }));
       }
 
-      DTG.updateProcessingProgress(45);
+      DTG.updateProcessingProgress(65);
       DTG.updateProcessingStatus('Analyzing zero usage lines...');
 
       const zeroUsageResults = window.ZeroUsageAnalyzer.analyze(profiles, carrier);
@@ -98,9 +142,9 @@
 
       window.RatePlanLogger.logPlans(carrier, clientName, ratePlans.plans);
 
-      // Parse bill PDF if provided
+      // Parse bill PDF if provided (for CSV+PDF mode, PDF was already parsed in PDF-only mode)
       let billData = null;
-      if (uiState.files.pdf) {
+      if (uiState.files.pdf && !pdfOnlyMode) {
         DTG.updateProcessingProgress(85);
         DTG.updateProcessingStatus('Reading bill PDF...');
         try {

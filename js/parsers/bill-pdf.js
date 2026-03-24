@@ -1,18 +1,29 @@
 /**
- * Bill PDF Parser
+ * Bill PDF Parser — Full Line-Level Extraction
  * Uses pdf.js to extract text from carrier bill PDFs.
  * Auto-detects carrier from content.
  * NOT OCR — reads embedded text layer (like pdfplumber).
+ *
+ * Supports PDF-only audits for small accounts without CSVs.
  */
 
 window.BillPDFParser = (function () {
 
+  function parseMoney(val) {
+    if (val == null || val === '' || val === '-') return 0;
+    let s = String(val).trim();
+    const neg = s.startsWith('(') || s.startsWith('-');
+    s = s.replace(/[$,()]/g, '').trim();
+    const v = parseFloat(s);
+    if (isNaN(v)) return 0;
+    return neg ? -v : v;
+  }
+
   /**
-   * Extract all text from a PDF file
-   * @param {File} file - PDF file from input
-   * @returns {Promise<{pages: string[], fullText: string, carrier: string}>}
+   * Extract all text from a PDF file using pdf.js
+   * Each page's text is extracted with line breaks preserved
    */
-  async function extractText(file) {
+  async function extractText(file, progressCb) {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const pages = [];
@@ -20,8 +31,36 @@ window.BillPDFParser = (function () {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const text = textContent.items.map(item => item.str).join(' ');
-      pages.push(text);
+
+      // Group items by Y position to reconstruct lines
+      const items = textContent.items;
+      if (items.length === 0) { pages.push(''); continue; }
+
+      // Sort by Y (descending — PDF origin is bottom-left) then X
+      const sorted = items.slice().sort((a, b) => {
+        const dy = b.transform[5] - a.transform[5];
+        if (Math.abs(dy) > 3) return dy > 0 ? 1 : -1; // different line
+        return a.transform[4] - b.transform[4]; // same line, sort by X
+      });
+
+      // Group into lines (items within 3px Y are same line)
+      const lines = [];
+      let currentLine = [sorted[0]];
+      for (let j = 1; j < sorted.length; j++) {
+        if (Math.abs(sorted[j].transform[5] - currentLine[0].transform[5]) < 3) {
+          currentLine.push(sorted[j]);
+        } else {
+          // Sort current line by X
+          currentLine.sort((a, b) => a.transform[4] - b.transform[4]);
+          lines.push(currentLine.map(it => it.str).join(' '));
+          currentLine = [sorted[j]];
+        }
+      }
+      currentLine.sort((a, b) => a.transform[4] - b.transform[4]);
+      lines.push(currentLine.map(it => it.str).join(' '));
+
+      pages.push(lines.join('\n'));
+      if (progressCb && i % 50 === 0) progressCb(i, pdf.numPages);
     }
 
     const fullText = pages.join('\n\n');
@@ -30,9 +69,6 @@ window.BillPDFParser = (function () {
     return { pages, fullText, carrier, pageCount: pdf.numPages };
   }
 
-  /**
-   * Detect carrier from PDF text
-   */
   function detectCarrier(text) {
     const t = text.toLowerCase();
     if (t.includes('at&t') || t.includes('att.com') || t.includes('premier.att')) return 'att';
@@ -41,11 +77,8 @@ window.BillPDFParser = (function () {
     return 'unknown';
   }
 
-  /**
-   * Parse account info from first pages
-   */
-  function parseAccountInfo(pages, carrier) {
-    const text = pages.slice(0, 3).join('\n');
+  function parseAccountInfo(pages) {
+    const text = pages.slice(0, 5).join('\n');
     const info = {
       accountNumber: '',
       accountName: '',
@@ -54,102 +87,281 @@ window.BillPDFParser = (function () {
       dueDate: '',
     };
 
-    // Generic patterns
-    const acctMatch = text.match(/account\s*(?:number|#|no\.?)[\s:]*(\d[\d-]+)/i);
+    const acctMatch = text.match(/Account\s*(?:Number|number|#)[\s:]*(\d[\d-]+)/);
     if (acctMatch) info.accountNumber = acctMatch[1].trim();
 
-    const totalMatch = text.match(/total\s*(?:amount\s*)?due[\s:]*\$?([\d,]+\.?\d*)/i);
+    const nameMatch = text.match(/^([A-Z][A-Z\s&,.]+(?:INC|LLC|CORP|CO|LTD|LP)?)\s/m);
+    if (nameMatch) info.accountName = nameMatch[1].trim();
+
+    const totalMatch = text.match(/(?:Total\s*due|total\s*amount\s*due)\s*\$?([\d,]+\.?\d*)/i);
     if (totalMatch) info.totalDue = parseFloat(totalMatch[1].replace(/,/g, ''));
 
-    const dateMatch = text.match(/(?:due\s*date|payment\s*due)[\s:]*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    if (dateMatch) info.dueDate = dateMatch[1];
+    const dueMatch = text.match(/(?:scheduled\s*for|due\s*date)[:\s]*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (dueMatch) info.dueDate = dueMatch[1].trim();
 
-    const periodMatch = text.match(/(?:billing?\s*period|service\s*period)[\s:]*(.+?)(?:\n|$)/i);
-    if (periodMatch) info.billingPeriod = periodMatch[1].trim().substring(0, 50);
+    const periodMatch = text.match(/(?:Monthly\s*charges)\s+(\w{3}\s+\d{1,2})\s*-\s*(\w{3}\s+\d{1,2})/);
+    if (periodMatch) info.billingPeriod = `${periodMatch[1]} - ${periodMatch[2]}`;
 
     return info;
   }
 
-  /**
-   * Extract charge summary from bill
-   * Returns categorized charges
-   */
-  function parseChargeSummary(pages, carrier) {
-    const text = pages.slice(0, 5).join('\n');
+  function parseChargeSummary(pages) {
+    const text = pages.slice(0, 15).join('\n');
     const charges = {
       monthlyCharges: 0,
       equipmentCharges: 0,
       surcharges: 0,
       taxes: 0,
-      usageCharges: 0,
       totalCurrentCharges: 0,
     };
 
-    // Try to extract charge categories
-    const patterns = [
-      [/monthly\s*(?:service\s*)?charges[\s:]*\$?([\d,]+\.?\d*)/i, 'monthlyCharges'],
-      [/equipment\s*charges[\s:]*\$?([\d,]+\.?\d*)/i, 'equipmentCharges'],
-      [/surcharges[\s:]*\$?([\d,]+\.?\d*)/i, 'surcharges'],
-      [/tax(?:es)?[\s:]*\$?([\d,]+\.?\d*)/i, 'taxes'],
-      [/usage\s*(?:and\s*purchase\s*)?charges[\s:]*\$?([\d,]+\.?\d*)/i, 'usageCharges'],
-      [/total\s*current\s*charges[\s:]*\$?([\d,]+\.?\d*)/i, 'totalCurrentCharges'],
-    ];
-
-    for (const [pattern, field] of patterns) {
-      const match = text.match(pattern);
-      if (match) {
-        charges[field] = parseFloat(match[1].replace(/,/g, ''));
-      }
-    }
+    const totalMatch = text.match(/Total\s*(?:due|services)\s*\$?([\d,]+\.?\d*)/i);
+    if (totalMatch) charges.totalCurrentCharges = parseFloat(totalMatch[1].replace(/,/g, ''));
 
     return charges;
   }
 
+  // ═══════════════════════════════════════════════════════
+  // AT&T FULL LINE EXTRACTION
+  // ═══════════════════════════════════════════════════════
+
   /**
-   * Extract rate plan information from bill text
+   * Extract all lines from AT&T bill PDF.
+   *
+   * Strategy: Each line has a detail page identified by the bracket pattern
+   * [[XXXXbXXXXXX||... or ||XXXXXXXXXX]]
+   *
+   * From each detail page we extract:
+   * - Phone number (from brackets)
+   * - Device type (Ph = Phone, Ta = Tablet, Wa = Watch, etc.)
+   * - User name (line after device type header)
+   * - Rate plan (line starting with "1. Plan Name $XX.XX")
+   * - Total charges ("Total for NNN.NNN.NNNN $XX.XX")
+   * - Data usage (number appearing near plan name in Data Used section)
+   * - Fees and taxes broken out
    */
-  function parseRatePlans(pages) {
-    const plans = [];
-    const fullText = pages.join('\n');
+  function parseATTDetailPages(pages) {
+    const profiles = {};
+    const bracketRe = /\|\|(\d{10})\]\]/;
 
-    // Look for plan-related sections
-    const planPatterns = [
-      /(?:plan|calling plan|rate plan)[\s:]+([^\n$]+?)(?:\s*\$)([\d,]+\.?\d*)/gi,
-    ];
+    for (let i = 0; i < pages.length; i++) {
+      const text = pages[i];
+      if (!text || text.length < 80) continue;
 
-    for (const pattern of planPatterns) {
-      let match;
-      while ((match = pattern.exec(fullText)) !== null) {
-        plans.push({
-          name: match[1].trim(),
-          cost: parseFloat(match[2].replace(/,/g, '')),
-        });
+      // Find phone number from closing bracket
+      const bracketMatch = bracketRe.exec(text);
+      if (!bracketMatch) continue;
+
+      const wireless = bracketMatch[1];
+      if (profiles[wireless]) continue; // Already processed
+
+      const lines = text.split('\n');
+
+      // Determine device type from header: "Ph[[..." "Ta[[..." "Wa[[..."
+      let deviceType = 'Phone';
+      for (const line of lines) {
+        if (/^Ph\[\[/.test(line) || /Phone,/.test(line)) { deviceType = 'Phone'; break; }
+        if (/^Ta\[\[/.test(line) || /Tablet,/.test(line) || /^Ta\b/.test(line)) { deviceType = 'Tablet'; break; }
+        if (/^Wa\[\[/.test(line) || /Watch,/.test(line) || /Wearable,/.test(line)) { deviceType = 'Watch'; break; }
+        if (/^Ho\[\[/.test(line) || /Hotspot,/.test(line)) { deviceType = 'Hotspot'; break; }
+        if (/^La\[\[/.test(line) || /Laptop,/.test(line)) { deviceType = 'Laptop'; break; }
       }
+
+      // User name: line immediately after the device header line
+      let userName = '';
+      for (let j = 0; j < lines.length; j++) {
+        if (/\[\[/.test(lines[j]) && /ne,|let,|tch,|pot,|top,/.test(lines[j])) {
+          // Next non-empty line is the user name
+          for (let k = j + 1; k < Math.min(j + 3, lines.length); k++) {
+            const candidate = lines[k].trim();
+            if (candidate && !candidate.startsWith('Monthly') && !candidate.startsWith('Usage') && !candidate.startsWith('Company')) {
+              userName = candidate.replace(/,?\s*INC$/i, '').trim().substring(0, 50);
+              break;
+            }
+          }
+          break;
+        }
+      }
+
+      // Rate plan: first numbered item "1. Plan Name $XX.XX"
+      let ratePlan = '';
+      let planCharge = 0;
+      for (const line of lines) {
+        const planMatch = line.match(/^1\.\s+(.+?)\s+\$([\d,.]+)/);
+        if (planMatch) {
+          ratePlan = planMatch[1].trim();
+          planCharge = parseMoney(planMatch[2]);
+          break;
+        }
+      }
+
+      // Total charges: "Total for NNN.NNN.NNNN $XX.XX"
+      let totalCharges = 0;
+      for (const line of lines) {
+        const totalMatch = line.match(/Total for \d{3}\.\d{3}\.\d{4}\s+\$([\d,.]+)/);
+        if (totalMatch) {
+          totalCharges = parseMoney(totalMatch[1]);
+          break;
+        }
+      }
+
+      // Data usage: number next to plan name in "Data Used" section
+      // AT&T format: "Data Used" appears then "Plan Name NNN,NNN" (in MB)
+      // or "(X.XX GB) X.XX" for shared plans
+      let dataMB = 0;
+      let foundDataSection = false;
+      for (const line of lines) {
+        if (line.includes('Data Used')) foundDataSection = true;
+        if (foundDataSection) {
+          // Look for: "Plan Name NNN,NNN" or "Plan Name (unlimited MB)" with usage number
+          const dataMatch = line.match(/(?:VVM|LTE|5G|Tablet|Wearable|unlimited\s*MB\)?)\s+([\d,]+)$/);
+          if (dataMatch) {
+            dataMB = parseInt(dataMatch[1].replace(/,/g, ''), 10);
+            break;
+          }
+          // Shared plan: "(X.XX GB) X.XX"
+          const sharedMatch = line.match(/\(([\d.]+)\s*GB\)\s+([\d.]+)/);
+          if (sharedMatch) {
+            dataMB = parseFloat(sharedMatch[2]) * 1024; // Convert GB to MB
+            break;
+          }
+          // Simple number at end of line in data section
+          const simpleMatch = line.match(/\b([\d,]+)\s*$/);
+          if (simpleMatch && foundDataSection && !line.includes('$') && !line.includes('Fee') && !line.includes('Tax')) {
+            const val = parseInt(simpleMatch[1].replace(/,/g, ''), 10);
+            if (val >= 0 && val < 500000) { // Reasonable MB range
+              dataMB = val;
+              break;
+            }
+          }
+        }
+      }
+
+      // Extract company fees subtotal
+      let companyFees = 0;
+      let govTaxes = 0;
+      let inCompanyFees = false;
+      let inGovTaxes = false;
+      for (const line of lines) {
+        if (line.includes('Company fees')) inCompanyFees = true;
+        if (line.includes('Government fees')) { inCompanyFees = false; inGovTaxes = true; }
+        if (line.includes('Total for')) { inGovTaxes = false; break; }
+
+        const feeMatch = line.match(/\$([\d,.]+)$/);
+        if (feeMatch) {
+          const amt = parseMoney(feeMatch[1]);
+          if (inCompanyFees) companyFees += amt;
+          if (inGovTaxes) govTaxes += amt;
+        }
+      }
+
+      // Equipment charges
+      let equipment = 0;
+      for (const line of lines) {
+        if (/Installment|APPLE|Samsung|Galaxy/i.test(line)) {
+          const eqMatch = line.match(/\$([\d,.]+)/);
+          if (eqMatch) equipment += parseMoney(eqMatch[1]);
+        }
+        // Promo credits
+        if (/Promo|Credit/i.test(line) && /Installment|device/i.test(text)) {
+          const credMatch = line.match(/-\$([\d,.]+)/);
+          if (credMatch) equipment -= parseMoney(credMatch[1]);
+        }
+      }
+
+      const dataGB = dataMB / 1024;
+      const isZeroUsage = dataMB === 0;
+
+      profiles[wireless] = {
+        wireless,
+        userName: userName || 'Unknown',
+        deviceType,
+        ratePlan,
+        mrc: totalCharges,
+        monthlyCharges: planCharge,
+        totalCharges,
+        equipment: Math.max(0, equipment),
+        taxes: govTaxes,
+        fees: companyFees,
+        latestTaxes: govTaxes,
+        latestFees: companyFees,
+        gbTotal: dataGB,
+        kbTotal: dataMB * 1024,
+        minTotal: 0, // Can't reliably extract from AT&T PDF
+        msgTotal: 0,
+        zeroUsage: isZeroUsage,
+        hasActiveContract: false, // PDF doesn't have contract info
+        contractEnd: null,
+        contractType: '',
+        source: 'pdf',
+      };
     }
 
-    return plans;
+    return profiles;
   }
 
   /**
-   * Main parse function
-   * @param {File} file - PDF file
-   * @returns {Promise<Object>} Parsed bill data
+   * Also extract lines from summary pages (pages 4-30ish)
+   * These have the charge breakdown table but less detail per line
    */
-  async function parse(file) {
-    const { pages, fullText, carrier, pageCount } = await extractText(file);
-    const accountInfo = parseAccountInfo(pages, carrier);
-    const charges = parseChargeSummary(pages, carrier);
-    const ratePlans = parseRatePlans(pages);
+  function parseATTSummaryCharges(pages, profiles) {
+    const phoneRe = /(\d{3})[.\-](\d{3})[.\-](\d{4})/g;
+
+    for (let i = 3; i < Math.min(50, pages.length); i++) {
+      const text = pages[i];
+      if (!text.includes('Subtotal for Group')) continue;
+
+      const textLines = text.split('\n');
+      for (const line of textLines) {
+        const phoneMatch = line.match(/(\d{3})[.\-](\d{3})[.\-](\d{4})/);
+        if (!phoneMatch) continue;
+
+        const wireless = phoneMatch[1] + phoneMatch[2] + phoneMatch[3];
+        if (!profiles[wireless]) continue;
+
+        // Try to get better user name from summary if current is Unknown
+        if (profiles[wireless].userName === 'Unknown') {
+          const afterPhone = line.substring(line.indexOf(phoneMatch[0]) + phoneMatch[0].length).trim();
+          const nameMatch = afterPhone.match(/^([A-Z][A-Z\s.,'\-&/]+?)(?:\.\.\.|\.{3}|\d{2,})/);
+          if (nameMatch) {
+            profiles[wireless].userName = nameMatch[1].trim().replace(/\.+$/, '').substring(0, 50);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Main parse function — enhanced for full line-level extraction
+   */
+  async function parse(file, progressCb) {
+    const { pages, fullText, carrier, pageCount } = await extractText(file, progressCb);
+    const accountInfo = parseAccountInfo(pages);
+    const charges = parseChargeSummary(pages);
+
+    let lineProfiles = null;
+    if (carrier === 'att') {
+      lineProfiles = parseATTDetailPages(pages);
+      parseATTSummaryCharges(pages, lineProfiles);
+      console.log('[PDF] AT&T extraction:', Object.keys(lineProfiles).length, 'lines from', pageCount, 'pages');
+    }
+    // TODO: Add verizon and tmobile PDF parsers
 
     return {
       carrier,
       pageCount,
       accountInfo,
       charges,
-      ratePlans,
+      lineProfiles,
       rawPages: pages,
     };
   }
 
-  return { extractText, detectCarrier, parse, parseAccountInfo, parseChargeSummary };
+  return {
+    extractText,
+    detectCarrier,
+    parse,
+    parseAccountInfo,
+    parseChargeSummary,
+  };
 })();
