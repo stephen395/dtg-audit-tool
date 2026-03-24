@@ -234,13 +234,22 @@ window.BillPDFParser = (function () {
       if (totalMatch) d.totalCharges = parseMoney(totalMatch[1]);
 
       // Usage — Data (from detail page)
-      const dataMatch = text.match(/DATA ALL\s+([\d,.]+)/);
-      if (dataMatch) d.dataGB = parseFloat(dataMatch[1].replace(/,/g, ''));
-
-      // Fallback data: "Tablet Plan ( unlimited X.XX" or "Standalone Tablet (X.XX GB) X.XX"
-      if (d.dataGB === 0) {
-        const dataFallback = text.match(/(?:Tablet Plan|Standalone Tablet|Wearable)\s*\(\s*(?:unlimited|[\d.]+)\s*(?:GB)?\s*\)\s*([\d,.]+)/i);
-        if (dataFallback) d.dataGB = parseFloat(dataFallback[1].replace(/,/g, ''));
+      // Pattern 1: "DATA ALL 59.05" (number right after)
+      // Pattern 2: "DATA ALL AAT ( unlimited GB) 59.05" (number after allowance)
+      // Pattern 3: "unlimited GB) 59.05" (just the tail end)
+      // Pattern 4: "Tablet Plan ( unlimited 0.50" or "Standalone Tablet (999.00 GB) 0.00"
+      const dataPatterns = [
+        /DATA ALL\s+([\d,.]+)(?!\d)/,
+        /unlimited\s*GB\s*\)\s*([\d,.]+)/,
+        /DATA ALL[\s\S]*?unlimited\s*(?:GB|MB)\s*\)\s*([\d,.]+)/,
+        /(?:Tablet Plan|Standalone Tablet|Wearable)\s*\(\s*(?:unlimited|[\d.]+)\s*(?:GB)?\s*\)\s*([\d,.]+)/i,
+      ];
+      for (const pat of dataPatterns) {
+        const dm = text.match(pat);
+        if (dm) {
+          const val = parseFloat(dm[1].replace(/,/g, ''));
+          if (!isNaN(val)) { d.dataGB = val; break; }
+        }
       }
 
       // Usage — Talk
