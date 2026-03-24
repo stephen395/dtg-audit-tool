@@ -1,61 +1,49 @@
 /**
  * DTG Wireless Audit Tool — Audit Pipeline
  * Bridges the inline UI with parser/analyzer/reporter modules.
- * Called by the inline JS via window.DTG.runAudit(state)
+ * Called via window.DTG.runAudit(state) from the inline HTML JS.
  */
 
 (function () {
-
-  // Ensure DTG namespace exists
   window.DTG = window.DTG || {};
 
   function fmtMoney(val) {
-    if (val == null) return '$0';
+    if (val == null || isNaN(val)) return '$0.00';
     if (Math.abs(val) >= 1000) return '$' + Math.round(val).toLocaleString();
     return '$' + val.toFixed(2);
   }
 
-  /**
-   * Main audit pipeline — called from inline JS when "Run Audit" is clicked
-   * @param {Object} uiState - { carrier, carrierName, files: {usage, upgrade, pdf}, clientName }
-   */
+  function setKPI(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // MAIN AUDIT PIPELINE
+  // ═══════════════════════════════════════════════════════
   window.DTG.runAudit = async function (uiState) {
     const DTG = window.DTG;
     DTG.showProcessing(true);
 
     try {
-      // ── Step 1: Parse files ──
       DTG.updateProcessingStatus('Parsing uploaded files...');
       DTG.updateProcessingProgress(10);
 
-      const carrier = uiState.carrier; // 'att', 'verizon', 'tmobile'
+      const carrier = uiState.carrier;
       const clientName = uiState.clientName || 'Client';
 
-      // Parse CSV/TXT files
-      const usageFile = uiState.files.usage;
-      const upgradeFile = uiState.files.upgrade;
-      const pdfFile = uiState.files.pdf;
+      // Parse CSV/TXT files with PapaParse
+      const parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
+      const parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
 
-      let parsedUsage = null;
-      let parsedUpgrade = null;
+      console.log('[AUDIT] Carrier:', carrier);
+      console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
+      console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
 
-      if (usageFile) {
-        parsedUsage = await parseFileAsync(usageFile);
-      }
-      if (upgradeFile) {
-        parsedUpgrade = await parseFileAsync(upgradeFile);
-      }
-
-      // Debug: log parsed data
-      console.log('Parsed usage:', parsedUsage ? { rows: parsedUsage.rows.length, headers: parsedUsage.headers.slice(0, 5) } : 'none');
-      console.log('Parsed upgrade:', parsedUpgrade ? { rows: parsedUpgrade.rows.length, headers: parsedUpgrade.headers.slice(0, 5) } : 'none');
-      if (parsedUsage && parsedUsage.rows[0]) console.log('First usage row keys:', Object.keys(parsedUsage.rows[0]).slice(0, 8));
-      if (parsedUpgrade && parsedUpgrade.rows[0]) console.log('First upgrade row keys:', Object.keys(parsedUpgrade.rows[0]).slice(0, 8));
-
-      DTG.updateProcessingProgress(30);
+      DTG.updateProcessingProgress(25);
       DTG.updateProcessingStatus('Building line profiles...');
 
-      // ── Step 2: Run carrier-specific parser ──
+      // Run carrier-specific parser
       let result;
       if (carrier === 'att') {
         result = window.ATTParser.parse(
@@ -63,18 +51,13 @@
           parsedUpgrade ? parsedUpgrade.rows : null
         );
       } else if (carrier === 'verizon') {
-        // Verizon: detect file types from headers
         const files = [];
         if (parsedUsage) {
-          const headers = Object.keys(parsedUsage.rows[0] || {});
-          const type = window.VerizonParser.detectFileType(headers);
-          if (type) files.push({ type, rows: parsedUsage.rows });
-          // If it's wirelessSummary but not detected, try as wirelessSummary
-          if (!type) files.push({ type: 'wirelessSummary', rows: parsedUsage.rows });
+          const type = window.VerizonParser.detectFileType(parsedUsage.headers) || 'wirelessSummary';
+          files.push({ type, rows: parsedUsage.rows });
         }
         if (parsedUpgrade) {
-          const headers = Object.keys(parsedUpgrade.rows[0] || {});
-          const type = window.VerizonParser.detectFileType(headers);
+          const type = window.VerizonParser.detectFileType(parsedUpgrade.headers);
           if (type) files.push({ type, rows: parsedUpgrade.rows });
         }
         result = window.VerizonParser.parse(files);
@@ -86,74 +69,65 @@
 
       const profiles = result.profiles;
       const meta = result.meta || {};
-
-      // Debug: log profile stats
       const profileCount = Object.keys(profiles).length;
-      const zeroCount = Object.values(profiles).filter(p => p.zeroUsage).length;
-      console.log(`Profiles built: ${profileCount} lines, ${zeroCount} zero usage`);
+
+      console.log('[AUDIT] Profiles built:', profileCount);
       if (profileCount > 0) {
         const sample = Object.values(profiles)[0];
-        console.log('Sample profile:', { wireless: sample.wireless, userName: sample.userName, ratePlan: sample.ratePlan, mrc: sample.mrc, zeroUsage: sample.zeroUsage, gbTotal: sample.gbTotal });
+        console.log('[AUDIT] Sample:', JSON.stringify({ w: sample.wireless, u: sample.userName, plan: sample.ratePlan, mrc: sample.mrc, zu: sample.zeroUsage, gb: sample.gbTotal }));
       }
 
-      DTG.updateProcessingProgress(50);
+      DTG.updateProcessingProgress(45);
       DTG.updateProcessingStatus('Analyzing zero usage lines...');
 
-      // ── Step 3: Run analyzers ──
       const zeroUsageResults = window.ZeroUsageAnalyzer.analyze(profiles, carrier);
       const zeroUsageSummary = window.ZeroUsageAnalyzer.summarize(zeroUsageResults);
+      console.log('[AUDIT] Zero usage:', zeroUsageSummary.totalZeroUsage, 'lines, savings:', zeroUsageSummary.totalMonthlySavings);
 
-      DTG.updateProcessingProgress(65);
+      DTG.updateProcessingProgress(60);
       DTG.updateProcessingStatus('Generating usage report...');
 
       const usageReport = window.UsageReportAnalyzer.analyze(profiles);
+      console.log('[AUDIT] Usage report:', usageReport.summary.totalLines, 'lines');
 
       DTG.updateProcessingProgress(75);
       DTG.updateProcessingStatus('Analyzing rate plans...');
 
       const ratePlans = window.RatePlanAnalyzer.analyze(profiles);
+      console.log('[AUDIT] Rate plans:', ratePlans.summary.uniquePlans, 'unique plans');
 
-      // Log rate plans for future suggestions
       window.RatePlanLogger.logPlans(carrier, clientName, ratePlans.plans);
 
-      // ── Step 4: Parse bill PDF if provided ──
+      // Parse bill PDF if provided
       let billData = null;
-      if (pdfFile) {
+      if (uiState.files.pdf) {
         DTG.updateProcessingProgress(85);
         DTG.updateProcessingStatus('Reading bill PDF...');
         try {
-          billData = await window.BillPDFParser.parse(pdfFile);
+          billData = await window.BillPDFParser.parse(uiState.files.pdf);
+          console.log('[AUDIT] Bill PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier);
         } catch (e) {
-          console.warn('Bill PDF parse error:', e);
+          console.warn('[AUDIT] Bill PDF error:', e.message);
         }
       }
 
       DTG.updateProcessingProgress(90);
       DTG.updateProcessingStatus('Rendering results...');
 
-      // ── Step 5: Store results and render ──
+      // Store for exports
       const auditData = {
-        carrier,
-        clientName,
-        billingPeriod: meta.billingPeriods ? meta.billingPeriods.join(' → ') : '',
-        profiles,
-        meta,
-        zeroUsageResults,
-        zeroUsageSummary,
-        usageReport,
-        ratePlans,
-        billData,
+        carrier, clientName,
+        billingPeriod: meta.billingCycles ? meta.billingCycles.join(' → ') : (meta.billingPeriods ? meta.billingPeriods.join(' → ') : ''),
+        profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, billData,
       };
-
-      // Store for export functions
       window.DTG.auditData = auditData;
 
-      // Render all tabs
-      renderDashboard(auditData);
-      renderZeroUsageTable(auditData);
-      renderUsageTable(auditData);
-      renderRatePlanTable(auditData);
-      setupExportButtons(auditData);
+      // Populate all UI
+      populateDashboardKPIs(auditData);
+      populateZeroUsageTable(auditData);
+      populateUsageTable(auditData);
+      populateRatePlanTable(auditData);
+      wireExportButtons(auditData);
 
       DTG.updateProcessingProgress(100);
       DTG.updateProcessingStatus('Complete!');
@@ -161,26 +135,25 @@
       setTimeout(() => {
         DTG.showProcessing(false);
         DTG.showResults();
-      }, 600);
+      }, 500);
 
     } catch (err) {
-      console.error('Audit pipeline error:', err);
+      console.error('[AUDIT] Pipeline error:', err);
       DTG.showProcessing(false);
-      alert('Audit failed: ' + err.message + '\n\nCheck console for details.');
+      alert('Audit failed: ' + err.message);
     }
   };
 
-  /**
-   * Parse a file using PapaParse (auto-detect delimiter)
-   */
+  // ═══════════════════════════════════════════════════════
+  // FILE PARSING
+  // ═══════════════════════════════════════════════════════
   function parseFileAsync(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        // Strip BOM and clean text
         let text = e.target.result;
+        // Strip BOM
         if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-        text = text.replace(/^\uFEFF/, '');
 
         const firstLine = text.split('\n')[0];
         const delimiter = firstLine.includes('\t') ? '\t' : ',';
@@ -191,16 +164,16 @@
           skipEmptyLines: true,
           transformHeader: (h) => h.replace(/^"|"$/g, '').trim(),
           complete: (results) => {
-            // Clean any remaining quotes from row values
             const cleaned = results.data.map(row => {
               const r = {};
               for (const [k, v] of Object.entries(row)) {
-                const cleanKey = k.replace(/^"|"$/g, '').trim();
-                r[cleanKey] = typeof v === 'string' ? v.replace(/^"|"$/g, '').trim() : v;
+                const ck = k.replace(/^"|"$/g, '').trim();
+                r[ck] = typeof v === 'string' ? v.replace(/^"|"$/g, '').trim() : v;
               }
               return r;
             });
             const headers = (results.meta.fields || []).map(h => h.replace(/^"|"$/g, '').trim());
+            console.log('[PARSE] File:', file.name, '→', cleaned.length, 'rows, headers:', headers.slice(0, 5));
             resolve({ rows: cleaned, headers });
           },
           error: (err) => reject(err),
@@ -211,341 +184,236 @@
     });
   }
 
-  // ── RENDER FUNCTIONS ──
-
-  function renderDashboard(data) {
-    const container = document.getElementById('tab-dashboard');
-    if (!container) return;
-
-    const zu = data.zeroUsageSummary;
+  // ═══════════════════════════════════════════════════════
+  // POPULATE DASHBOARD KPI CARDS (by element ID)
+  // ═══════════════════════════════════════════════════════
+  function populateDashboardKPIs(data) {
     const ur = data.usageReport;
-    const inv = ur.inventory;
-    const rp = data.ratePlans;
-
-    // Find or create content area
-    let content = container.querySelector('.dashboard-dynamic');
-    if (!content) {
-      content = document.createElement('div');
-      content.className = 'dashboard-dynamic';
-      container.appendChild(content);
-    }
-
-    content.innerHTML = `
-      <style>
-        .kpi-section { margin-bottom: 24px; }
-        .kpi-section .section-title { font-size: 13px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
-        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 12px; }
-        .kpi-card { background: #1e1f2a; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 16px; text-align: center; }
-        .kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b6b76; margin-bottom: 8px; }
-        .kpi-value { font-size: 24px; font-weight: 800; color: #e4e4e7; }
-        .kpi-sub { font-size: 10px; color: #6b6b76; margin-top: 4px; }
-        .kpi-green .kpi-value { color: #22c55e; }
-        .kpi-red .kpi-value { color: #ef4444; }
-        .kpi-orange .kpi-value { color: #f59e0b; }
-      </style>
-
-      <div class="kpi-section">
-        <div class="section-title">Spend Overview</div>
-        <div class="kpi-row">
-          ${kpiCard('Total Monthly', fmtMoney(ur.summary.totalCharges))}
-          ${kpiCard('Rate Plan Charges', fmtMoney(ur.summary.totalMonthlyCharges))}
-          ${kpiCard('Equipment (Net)', fmtMoney(ur.summary.totalEquipment))}
-          ${kpiCard('Avg Per Line', fmtMoney(ur.summary.avgChargesPerLine))}
-        </div>
-      </div>
-
-      <div class="kpi-section">
-        <div class="section-title">Current Inventory</div>
-        <div class="kpi-row">
-          ${kpiCard('Total Lines', inv.total)}
-          ${kpiCard('Smartphones', inv.smartphones)}
-          ${kpiCard('Tablets', inv.tablets)}
-          ${kpiCard('Hotspots', inv.hotspots)}
-          ${kpiCard('Watches', inv.watches)}
-        </div>
-      </div>
-
-      <div class="kpi-section">
-        <div class="section-title">Savings & Optimization</div>
-        <div class="kpi-row">
-          ${kpiCard('Zero Usage Lines', zu.totalZeroUsage, 'red', 'no 90-day usage')}
-          ${kpiCard('Suggest Cancel', zu.cancelCount, '', 'no contract')}
-          ${kpiCard('Cancel Savings', fmtMoney(zu.cancelSavings), 'green', '/month')}
-          ${kpiCard('Total Savings', fmtMoney(zu.totalMonthlySavings), 'green', 'if all acted on')}
-        </div>
-        <div class="kpi-row">
-          ${kpiCard('Suggest Suspend', zu.suspendCount, 'orange', 'has contract')}
-          ${kpiCard('Suspend Savings', fmtMoney(zu.suspendSavings), 'green', '/month')}
-          ${kpiCard('Annual Projection', fmtMoney(zu.totalMonthlySavings * 12), 'green', 'projected')}
-          ${kpiCard('One-Time Costs', fmtMoney(zu.totalOneTimeCost), '', 'ETF if canceling')}
-        </div>
-      </div>
-
-      <div class="kpi-section">
-        <div class="section-title">Rate Plans</div>
-        <div class="kpi-row">
-          ${kpiCard('Unique Plans', rp.summary.uniquePlans)}
-          ${kpiCard('Total Monthly', fmtMoney(rp.summary.totalMonthly))}
-          ${kpiCard('High Zero-Usage Plans', rp.summary.highZeroUsagePlans, rp.summary.highZeroUsagePlans > 0 ? 'red' : '', '>30% zero usage')}
-        </div>
-      </div>
-    `;
-  }
-
-  function kpiCard(label, value, color, sub) {
-    const cls = color ? `kpi-${color}` : '';
-    return `<div class="kpi-card ${cls}">
-      <div class="kpi-label">${label}</div>
-      <div class="kpi-value">${value}</div>
-      ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
-    </div>`;
-  }
-
-  function renderZeroUsageTable(data) {
-    const panel = document.getElementById('tab-zero-usage');
-    if (!panel) return;
-
-    let content = panel.querySelector('.zu-dynamic');
-    if (!content) {
-      content = document.createElement('div');
-      content.className = 'zu-dynamic';
-      panel.appendChild(content);
-    }
-
     const zu = data.zeroUsageSummary;
-    let html = `
-      <style>
-        .audit-table-wrap { overflow-x: auto; margin-top: 12px; }
-        .audit-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .audit-table th { background: #1a3a5c; color: #fff; padding: 8px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; position: sticky; top: 0; }
-        .audit-table td { padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #e4e4e7; }
-        .audit-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
-        .audit-table tr:hover { background: rgba(255,255,255,0.05); }
-        .audit-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-        .action-cancel { color: #ef4444; font-weight: 600; }
-        .action-suspend { color: #f59e0b; font-weight: 600; }
-        .action-keep { color: #6b6b76; }
-        .savings-banner { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; color: #22c55e; font-weight: 600; }
-        .table-search { background: #1e1f2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px 12px; color: #e4e4e7; width: 300px; margin-bottom: 8px; }
-      </style>
-      <div class="savings-banner">
-        Cancelling out-of-contract lines could save → <strong>${fmtMoney(zu.cancelSavings)}/month</strong>
-        &nbsp;|&nbsp; ${zu.totalZeroUsage} zero usage lines found
-      </div>
-      <input type="text" class="table-search" placeholder="Search lines..." oninput="DTG.filterZU(this.value)">
-      <div class="audit-table-wrap">
-        <table class="audit-table" id="zu-results-table">
-          <thead><tr>
-            <th>Wireless</th><th>User Name</th><th>Device</th><th>Rate Plan</th>
-            <th>90d GB</th><th>90d Min</th><th>90d Msg</th>
-            <th>MRC</th><th>Contract End</th><th>Action</th><th>Savings/mo</th>
-          </tr></thead>
-          <tbody>
-    `;
+    const inv = ur.inventory;
 
+    // Spend Overview
+    setKPI('kpi-total-spend', fmtMoney(ur.summary.totalCharges));
+    setKPI('kpi-avg-cost', fmtMoney(ur.summary.avgChargesPerLine));
+    setKPI('kpi-surcharges', fmtMoney(ur.summary.totalCharges - ur.summary.totalMonthlyCharges - ur.summary.totalEquipment));
+    setKPI('kpi-equipment', fmtMoney(ur.summary.totalEquipment));
+
+    // Inventory
+    setKPI('kpi-total-lines', inv.total);
+    setKPI('kpi-smartphones', inv.smartphones);
+    setKPI('kpi-tablets', inv.tablets);
+    setKPI('kpi-wearables', inv.watches + inv.hotspots);
+
+    // Savings
+    setKPI('kpi-total-savings', fmtMoney(zu.totalMonthlySavings));
+    setKPI('kpi-zero-lines', zu.totalZeroUsage);
+    setKPI('kpi-zero-cost', fmtMoney(zu.cancelSavings + zu.suspendSavings));
+    setKPI('kpi-plan-opts', data.ratePlans.summary.highZeroUsagePlans);
+    setKPI('kpi-plan-savings', fmtMoney(0)); // placeholder for plan optimization
+    setKPI('kpi-annual-savings', fmtMoney(zu.totalMonthlySavings * 12));
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // POPULATE ZERO USAGE TABLE
+  // ═══════════════════════════════════════════════════════
+  function populateZeroUsageTable(data) {
+    const tbody = document.querySelector('#tab-zero-usage .data-table tbody');
+    if (!tbody) {
+      console.warn('[AUDIT] Zero usage tbody not found, injecting table');
+      injectZeroUsageTable(data);
+      return;
+    }
+
+    tbody.innerHTML = '';
     for (const r of data.zeroUsageResults) {
-      const cls = r.action.includes('CANCEL') ? 'action-cancel' : (r.action === 'SUSPEND' ? 'action-suspend' : 'action-keep');
-      html += `<tr>
+      const tr = document.createElement('tr');
+      const cls = r.action.includes('CANCEL') ? 'color:#ef4444;font-weight:600' : (r.action === 'SUSPEND' ? 'color:#f59e0b;font-weight:600' : '');
+      tr.innerHTML = `
         <td>${r.wireless}</td>
         <td>${r.userName}</td>
         <td>${r.deviceType || ''}</td>
         <td title="${r.ratePlan}">${(r.ratePlan || '').substring(0, 35)}</td>
-        <td class="num">${(r.gbTotal || 0).toFixed(2)}</td>
-        <td class="num">${r.minTotal || r.totalMin90d || 0}</td>
-        <td class="num">${r.msgTotal || r.totalMsg90d || 0}</td>
-        <td class="num">${fmtMoney(r.mrc || 0)}</td>
+        <td style="text-align:right">${(r.gbTotal || 0).toFixed(2)}</td>
+        <td style="text-align:right">${r.minTotal || r.totalMin90d || 0}</td>
+        <td style="text-align:right">${r.msgTotal || r.totalMsg90d || 0}</td>
+        <td style="text-align:right">${fmtMoney(r.mrc || 0)}</td>
         <td>${r.contractEnd || ''}</td>
-        <td class="${cls}" title="${r.reason}">${r.action}</td>
-        <td class="num" style="color:#22c55e">${fmtMoney(r.monthlySavings || 0)}</td>
-      </tr>`;
+        <td style="${cls}" title="${r.reason}">${r.action}</td>
+        <td style="text-align:right;color:#22c55e">${fmtMoney(r.monthlySavings || 0)}</td>
+      `;
+      tbody.appendChild(tr);
     }
-
-    html += '</tbody></table></div>';
-    content.innerHTML = html;
   }
 
-  window.DTG.filterZU = function (q) {
-    const rows = document.querySelectorAll('#zu-results-table tbody tr');
-    const query = q.toLowerCase();
-    rows.forEach(r => { r.style.display = r.textContent.toLowerCase().includes(query) ? '' : 'none'; });
-  };
-
-  function renderUsageTable(data) {
-    const panel = document.getElementById('tab-usage');
+  function injectZeroUsageTable(data) {
+    const panel = document.getElementById('tab-zero-usage');
     if (!panel) return;
 
-    let content = panel.querySelector('.usage-dynamic');
-    if (!content) {
-      content = document.createElement('div');
-      content.className = 'usage-dynamic';
-      panel.appendChild(content);
-    }
+    let html = `<div style="margin-bottom:12px;padding:12px 16px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#22c55e;font-weight:600">
+      Cancelling out-of-contract lines could save → ${fmtMoney(data.zeroUsageSummary.cancelSavings)}/month | ${data.zeroUsageSummary.totalZeroUsage} zero usage lines
+    </div>
+    <div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#1a3a5c;color:#fff">
+        <th style="padding:8px">Wireless</th><th style="padding:8px">User Name</th><th style="padding:8px">Device</th><th style="padding:8px">Rate Plan</th>
+        <th style="padding:8px">90d GB</th><th style="padding:8px">90d Min</th><th style="padding:8px">90d Msg</th>
+        <th style="padding:8px">MRC</th><th style="padding:8px">Contract End</th><th style="padding:8px">Action</th><th style="padding:8px">Savings/mo</th>
+      </tr></thead><tbody>`;
 
-    let html = `
-      <input type="text" class="table-search" placeholder="Search lines..." oninput="DTG.filterUsage(this.value)">
-      <div class="audit-table-wrap">
-        <table class="audit-table" id="usage-results-table">
-          <thead><tr>
-            <th>Wireless</th><th>User Name</th><th>Device</th><th>Rate Plan</th>
-            <th>Data (GB)</th><th>Voice (min)</th><th>Messages</th>
-            <th>Monthly</th><th>Total</th><th>Zero?</th>
-          </tr></thead>
-          <tbody>
-    `;
+    for (const r of data.zeroUsageResults) {
+      const cls = r.action.includes('CANCEL') ? 'color:#ef4444;font-weight:600' : (r.action === 'SUSPEND' ? 'color:#f59e0b;font-weight:600' : '');
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td style="padding:6px 8px">${r.wireless}</td>
+        <td style="padding:6px 8px">${r.userName}</td>
+        <td style="padding:6px 8px">${r.deviceType || ''}</td>
+        <td style="padding:6px 8px" title="${r.ratePlan}">${(r.ratePlan || '').substring(0, 35)}</td>
+        <td style="padding:6px 8px;text-align:right">${(r.gbTotal || 0).toFixed(2)}</td>
+        <td style="padding:6px 8px;text-align:right">${r.minTotal || r.totalMin90d || 0}</td>
+        <td style="padding:6px 8px;text-align:right">${r.msgTotal || r.totalMsg90d || 0}</td>
+        <td style="padding:6px 8px;text-align:right">${fmtMoney(r.mrc || 0)}</td>
+        <td style="padding:6px 8px">${r.contractEnd || ''}</td>
+        <td style="padding:6px 8px;${cls}" title="${r.reason}">${r.action}</td>
+        <td style="padding:6px 8px;text-align:right;color:#22c55e">${fmtMoney(r.monthlySavings || 0)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+    panel.innerHTML = html;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // POPULATE USAGE REPORT TABLE
+  // ═══════════════════════════════════════════════════════
+  function populateUsageTable(data) {
+    const panel = document.getElementById('tab-usage-report');
+    if (!panel) return;
+
+    let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary)">
+      ${data.usageReport.summary.totalLines} lines | Total: ${fmtMoney(data.usageReport.summary.totalCharges)} | Avg: ${fmtMoney(data.usageReport.summary.avgChargesPerLine)}/line
+    </div>
+    <div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#1a3a5c;color:#fff">
+        <th style="padding:8px">Wireless</th><th style="padding:8px">User Name</th><th style="padding:8px">Device</th><th style="padding:8px">Rate Plan</th>
+        <th style="padding:8px">Data (GB)</th><th style="padding:8px">Voice (min)</th><th style="padding:8px">Messages</th>
+        <th style="padding:8px">Monthly</th><th style="padding:8px">Total</th><th style="padding:8px">Zero?</th>
+      </tr></thead><tbody>`;
 
     for (const l of data.usageReport.lines) {
-      html += `<tr>
-        <td>${l.wireless}</td>
-        <td>${l.userName}</td>
-        <td>${l.deviceType}</td>
-        <td title="${l.ratePlan}">${(l.ratePlan || '').substring(0, 35)}</td>
-        <td class="num">${l.gbTotal.toFixed(2)}</td>
-        <td class="num">${l.minTotal || 0}</td>
-        <td class="num">${l.msgTotal || 0}</td>
-        <td class="num">${fmtMoney(l.monthlyCharges)}</td>
-        <td class="num">${fmtMoney(l.totalCharges)}</td>
-        <td style="${l.zeroUsage ? 'color:#ef4444;font-weight:600' : ''}">${l.zeroUsage ? 'YES' : ''}</td>
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td style="padding:6px 8px">${l.wireless}</td>
+        <td style="padding:6px 8px">${l.userName}</td>
+        <td style="padding:6px 8px">${l.deviceType || ''}</td>
+        <td style="padding:6px 8px" title="${l.ratePlan}">${(l.ratePlan || '').substring(0, 35)}</td>
+        <td style="padding:6px 8px;text-align:right">${l.gbTotal.toFixed(2)}</td>
+        <td style="padding:6px 8px;text-align:right">${l.minTotal || 0}</td>
+        <td style="padding:6px 8px;text-align:right">${l.msgTotal || 0}</td>
+        <td style="padding:6px 8px;text-align:right">${fmtMoney(l.monthlyCharges)}</td>
+        <td style="padding:6px 8px;text-align:right">${fmtMoney(l.totalCharges)}</td>
+        <td style="padding:6px 8px;${l.zeroUsage ? 'color:#ef4444;font-weight:600' : ''}">${l.zeroUsage ? 'YES' : ''}</td>
       </tr>`;
     }
-
     html += '</tbody></table></div>';
-    content.innerHTML = html;
+    panel.innerHTML = html;
   }
 
-  window.DTG.filterUsage = function (q) {
-    const rows = document.querySelectorAll('#usage-results-table tbody tr');
-    const query = q.toLowerCase();
-    rows.forEach(r => { r.style.display = r.textContent.toLowerCase().includes(query) ? '' : 'none'; });
-  };
-
-  function renderRatePlanTable(data) {
-    const panel = document.getElementById('tab-rateplans');
+  // ═══════════════════════════════════════════════════════
+  // POPULATE RATE PLAN TABLE
+  // ═══════════════════════════════════════════════════════
+  function populateRatePlanTable(data) {
+    const panel = document.getElementById('tab-rate-plans');
     if (!panel) return;
 
-    let content = panel.querySelector('.rp-dynamic');
-    if (!content) {
-      content = document.createElement('div');
-      content.className = 'rp-dynamic';
-      panel.appendChild(content);
-    }
-
-    let html = `
-      <div class="audit-table-wrap">
-        <table class="audit-table">
-          <thead><tr>
-            <th>Rate Plan</th><th># Lines</th><th>Total Monthly</th><th>Per Line</th>
-            <th>Zero Usage</th><th>% Zero</th>
-          </tr></thead>
-          <tbody>
-    `;
+    let html = `<div style="overflow-x:auto"><table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#1a3a5c;color:#fff">
+        <th style="padding:8px">Rate Plan</th><th style="padding:8px"># Lines</th><th style="padding:8px">Total Monthly</th><th style="padding:8px">Per Line</th>
+        <th style="padding:8px">Zero Usage</th><th style="padding:8px">% Zero</th>
+      </tr></thead><tbody>`;
 
     for (const p of data.ratePlans.plans) {
-      const highZero = p.zeroUsagePercent > 30;
-      html += `<tr>
-        <td>${p.planName}</td>
-        <td class="num">${p.lineCount}</td>
-        <td class="num">${fmtMoney(p.totalMonthly)}</td>
-        <td class="num">${fmtMoney(p.perLine)}</td>
-        <td class="num">${p.zeroUsageLines}</td>
-        <td class="num" style="${highZero ? 'color:#ef4444;font-weight:600' : ''}">${p.zeroUsagePercent.toFixed(0)}%</td>
+      const hi = p.zeroUsagePercent > 30;
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td style="padding:6px 8px">${p.planName}</td>
+        <td style="padding:6px 8px;text-align:right">${p.lineCount}</td>
+        <td style="padding:6px 8px;text-align:right">${fmtMoney(p.totalMonthly)}</td>
+        <td style="padding:6px 8px;text-align:right">${fmtMoney(p.perLine)}</td>
+        <td style="padding:6px 8px;text-align:right">${p.zeroUsageLines}</td>
+        <td style="padding:6px 8px;text-align:right;${hi ? 'color:#ef4444;font-weight:600' : ''}">${p.zeroUsagePercent.toFixed(0)}%</td>
       </tr>`;
     }
-
-    // Total row
     html += `<tr style="background:rgba(34,197,94,0.1)">
-      <td><strong>TOTAL</strong></td>
-      <td class="num"><strong>${data.ratePlans.summary.totalLines}</strong></td>
-      <td class="num"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly)}</strong></td>
-      <td class="num"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</strong></td>
+      <td style="padding:8px"><strong>TOTAL</strong></td>
+      <td style="padding:8px;text-align:right"><strong>${data.ratePlans.summary.totalLines}</strong></td>
+      <td style="padding:8px;text-align:right"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly)}</strong></td>
+      <td style="padding:8px;text-align:right"><strong>${fmtMoney(data.ratePlans.summary.totalMonthly / Math.max(data.ratePlans.summary.totalLines, 1))}</strong></td>
       <td></td><td></td>
     </tr>`;
-
     html += '</tbody></table></div>';
 
-    // Rate plan database stats
     const stats = window.RatePlanLogger.getStats();
-    html += `<div style="margin-top:24px;padding:16px;background:#1e1f2a;border-radius:10px;border:1px solid rgba(255,255,255,0.08)">
-      <div style="font-weight:600;margin-bottom:8px">Rate Plan Database</div>
-      <div style="color:#6b6b76;font-size:12px">${stats.totalPlans} unique plans logged across ${stats.clients.length} client(s)</div>
+    html += `<div style="margin-top:20px;padding:14px;background:#1e1f2a;border-radius:10px;border:1px solid rgba(255,255,255,0.08)">
+      <strong>Rate Plan Database</strong><br>
+      <span style="color:#6b6b76;font-size:12px">${stats.totalPlans} unique plans logged across ${stats.clients.length} client(s)</span>
     </div>`;
 
-    content.innerHTML = html;
+    panel.innerHTML = html;
   }
 
-  function setupExportButtons(data) {
-    const panel = document.getElementById('tab-exports');
-    if (!panel) return;
+  // ═══════════════════════════════════════════════════════
+  // WIRE EXPORT BUTTONS
+  // ═══════════════════════════════════════════════════════
+  function wireExportButtons(data) {
+    const pdfBtn = document.getElementById('btn-export-pdf');
+    const xlsBtn = document.getElementById('btn-export-excel');
+    const csvBtn = document.getElementById('btn-export-csv');
+    const planBtn = document.getElementById('btn-export-plandb');
 
-    // Wire up export card clicks
-    const cards = panel.querySelectorAll('.export-card');
-    cards.forEach(card => {
-      const type = card.dataset.export;
-      card.style.cursor = 'pointer';
-      card.onclick = () => {
-        switch (type) {
-          case 'pdf': downloadPDF(data); break;
-          case 'excel': downloadExcel(data); break;
-          case 'csv': downloadCSV(data); break;
-          case 'plandb': downloadPlanDB(); break;
-        }
+    if (pdfBtn) {
+      pdfBtn.disabled = false;
+      pdfBtn.onclick = () => {
+        window.PDFReporter.download({
+          carrier: data.carrier, clientName: data.clientName, billingPeriod: data.billingPeriod,
+          zeroUsage: { results: data.zeroUsageResults, summary: data.zeroUsageSummary },
+          usageReport: data.usageReport, ratePlans: data.ratePlans, meta: data.meta,
+        });
       };
-    });
+    }
 
-    // Also expose globally
-    window.DTG.downloadPDF = () => downloadPDF(data);
-    window.DTG.downloadExcel = () => downloadExcel(data);
-    window.DTG.downloadCSV = () => downloadCSV(data);
-    window.DTG.downloadPlanDB = () => downloadPlanDB();
-  }
+    if (xlsBtn) {
+      xlsBtn.disabled = false;
+      xlsBtn.onclick = () => {
+        window.ExcelReporter.download({
+          carrier: data.carrier, clientName: data.clientName, billingPeriod: data.billingPeriod,
+          zeroUsageResults: data.zeroUsageResults, usageReport: data.usageReport,
+          ratePlans: data.ratePlans, profiles: data.profiles,
+        });
+      };
+    }
 
-  function downloadPDF(data) {
-    window.PDFReporter.download({
-      carrier: data.carrier,
-      clientName: data.clientName,
-      billingPeriod: data.billingPeriod,
-      zeroUsage: { results: data.zeroUsageResults, summary: data.zeroUsageSummary },
-      usageReport: data.usageReport,
-      ratePlans: data.ratePlans,
-      meta: data.meta,
-    });
-  }
+    if (csvBtn) {
+      csvBtn.disabled = false;
+      csvBtn.onclick = () => {
+        const rows = [
+          ['Wireless','User Name','Device Type','Rate Plan','MRC','Action','Monthly Savings','Reason'].join(','),
+          ...data.zeroUsageResults.map(r => [
+            r.wireless, `"${r.userName}"`, r.deviceType||'', `"${r.ratePlan||''}"`,
+            (r.mrc||0).toFixed(2), r.action, (r.monthlySavings||0).toFixed(2), `"${r.reason}"`
+          ].join(','))
+        ].join('\n');
+        downloadBlob(rows, 'text/csv', `ZeroUsage_${data.clientName}_${dateStr()}.csv`);
+      };
+    }
 
-  function downloadExcel(data) {
-    window.ExcelReporter.download({
-      carrier: data.carrier,
-      clientName: data.clientName,
-      billingPeriod: data.billingPeriod,
-      zeroUsageResults: data.zeroUsageResults,
-      usageReport: data.usageReport,
-      ratePlans: data.ratePlans,
-      profiles: data.profiles,
-    });
-  }
-
-  function downloadCSV(data) {
-    const rows = [
-      ['Wireless', 'User Name', 'Device Type', 'Rate Plan', 'MRC', 'Action', 'Monthly Savings', 'Reason'].join(','),
-      ...data.zeroUsageResults.map(r => [
-        r.wireless, `"${r.userName}"`, r.deviceType || '', `"${r.ratePlan || ''}"`,
-        (r.mrc || 0).toFixed(2), r.action, (r.monthlySavings || 0).toFixed(2), `"${r.reason}"`
-      ].join(','))
-    ].join('\n');
-
-    downloadBlob(rows, 'text/csv', `ZeroUsage_${data.clientName}_${dateStr()}.csv`);
-  }
-
-  function downloadPlanDB() {
-    const csv = window.RatePlanLogger.exportCSV();
-    downloadBlob(csv, 'text/csv', `RatePlanDatabase_${dateStr()}.csv`);
+    if (planBtn) {
+      planBtn.disabled = false;
+      planBtn.onclick = () => {
+        downloadBlob(window.RatePlanLogger.exportCSV(), 'text/csv', `RatePlanDB_${dateStr()}.csv`);
+      };
+    }
   }
 
   function downloadBlob(content, type, filename) {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
   }
 
