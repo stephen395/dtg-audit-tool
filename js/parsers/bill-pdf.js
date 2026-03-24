@@ -424,7 +424,7 @@ window.BillPDFParser = (function () {
         deviceType,
         ratePlan: detail.ratePlan || '',
         dataPlanName: detail.dataPlanName || '',
-        mrc: summary.totalCharges || detail.totalCharges || 0,
+        mrc: summary.planCharge || detail.planCharge || 0,
         monthlyCharges: summary.planCharge || detail.planCharge || 0,
         totalCharges: summary.totalCharges || detail.totalCharges || 0,
         activityCharges: summary.activityCharges || detail.oneTimeTotal || 0,
