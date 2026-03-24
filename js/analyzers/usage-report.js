@@ -70,9 +70,9 @@ window.UsageReportAnalyzer = (function () {
       // Inventory count
       inventory.total++;
       const dt = (line.deviceType || '').toLowerCase();
-      if (dt.includes('smartphone') || dt === 'phone') inventory.smartphones++;
+      if (dt.includes('smartphone') || dt.includes('phone')) inventory.smartphones++;
       else if (dt.includes('tablet')) inventory.tablets++;
-      else if (dt.includes('hotspot') || dt.includes('jetpack') || dt.includes('data device')) inventory.hotspots++;
+      else if (dt.includes('hotspot') || dt.includes('jetpack') || dt.includes('data device') || dt.includes('connected device') || dt.includes('broadband') || dt.includes('mifi')) inventory.hotspots++;
       else if (dt.includes('watch') || dt.includes('wearable')) inventory.watches++;
       else inventory.other++;
     }
