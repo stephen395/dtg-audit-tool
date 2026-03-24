@@ -224,11 +224,14 @@ window.ATTParser = (function () {
       contractMap[c.wireless] = c;
     }
 
-    // Get all unique wireless numbers
-    const allWireless = new Set([
-      ...billingLines.map(l => l.wireless),
-      ...contractLines.map(c => c.wireless),
-    ]);
+    // Device report (contract file) is the source of truth for active lines
+    const realLines = new Set(contractLines.map(c => c.wireless));
+
+    // If we have a device report, use it as the primary line list
+    // Lines in billing but NOT in device report are likely cancelled/removed
+    const allWireless = realLines.size > 0
+      ? new Set([...realLines, ...billingLines.filter(l => realLines.has(l.wireless)).map(l => l.wireless)])
+      : new Set(billingLines.map(l => l.wireless));
 
     // Detect discount-only lines
     const discountLines = new Set();
@@ -237,7 +240,6 @@ window.ATTParser = (function () {
         discountLines.add(l.wireless);
       }
     }
-    const realLines = new Set(contractLines.map(c => c.wireless));
 
     // Count billing cycles per wireless
     const lineCycleCounts = {};
