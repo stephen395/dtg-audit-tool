@@ -311,7 +311,7 @@ window.BillPDFParser = (function () {
   // MERGE: Summary + Detail → Final profiles
   // ═══════════════════════════════════════════════════════
 
-  function mergeATTData(summaryData, detailPages) {
+  function mergeATTData(summaryData, detailPages, allPageTexts) {
     const profiles = {};
     const summary = summaryData.profiles;
 
@@ -320,20 +320,72 @@ window.BillPDFParser = (function () {
       ...Object.keys(detailPages),
     ]);
 
+    // Build a full-text index for fallback usage extraction
+    const fullText = (allPageTexts || []).join('\n\n');
+
     for (const wireless of allWireless) {
       if (!/^\d{10}$/.test(wireless)) continue;
 
       const s = summary[wireless] || {};
       const d = detailPages[wireless] || {};
 
-      // Usage: prefer summary table (it has the clean numbers), fallback to detail
-      const dataGB = s.dataGB || d.dataGB || 0;
-      const talkMin = s.talkMinutes || d.talkMinutes || 0;
-      const textCnt = s.textCount || d.textCount || 0;
+      // Usage: try summary → detail → full-text scan fallback
+      let dataGB = s.dataGB || d.dataGB || 0;
+      let talkMin = s.talkMinutes || d.talkMinutes || 0;
+      let textCnt = s.textCount || d.textCount || 0;
 
-      console.log('[MERGE]', wireless, '→ summary data:', s.dataGB, '/ detail data:', d.dataGB, '→ final:', dataGB,
-        '| talk: s=', s.talkMinutes, 'd=', d.talkMinutes, '→', talkMin,
-        '| text: s=', s.textCount, 'd=', d.textCount, '→', textCnt);
+      // FALLBACK: If no usage found, scan ALL pages for this number + GB nearby
+      if (dataGB === 0 && fullText) {
+        const dotNum = wireless.replace(/(\d{3})(\d{3})(\d{4})/, '$1.$2.$3');
+        // Look for the number followed eventually by X.XXGB within 300 chars
+        const escapedDot = dotNum.replace(/\./g, '\\.');
+        const nearbyRe = new RegExp(escapedDot + '[\\s\\S]{0,300}?([\\d.]+)GB', 'g');
+        let fm;
+        while ((fm = nearbyRe.exec(fullText)) !== null) {
+          const val = parseFloat(fm[1]);
+          if (!isNaN(val) && val > 0 && val < 9999) {
+            dataGB = val;
+            console.log('[MERGE] Fallback GB for', wireless, ':', dataGB);
+            break;
+          }
+        }
+        // Also try: bracket marker nearby
+        if (dataGB === 0) {
+          const bracketIdx = fullText.indexOf('||' + wireless + ']]');
+          if (bracketIdx > 0) {
+            // Search backwards from bracket for GB value on same page
+            const before = fullText.substring(Math.max(0, bracketIdx - 2000), bracketIdx);
+            const gbMatches = [...before.matchAll(/([\d.]+)\s*GB/g)];
+            if (gbMatches.length > 0) {
+              const lastGB = parseFloat(gbMatches[gbMatches.length - 1][1]);
+              if (!isNaN(lastGB) && lastGB > 0) {
+                dataGB = lastGB;
+                console.log('[MERGE] Bracket-fallback GB for', wireless, ':', dataGB);
+              }
+            }
+          }
+        }
+      }
+
+      // FALLBACK for talk/text: scan detail page or full text
+      if (talkMin === 0 && textCnt === 0 && fullText) {
+        const bracketIdx = fullText.indexOf('||' + wireless + ']]');
+        if (bracketIdx > 0) {
+          const before = fullText.substring(Math.max(0, bracketIdx - 2000), bracketIdx);
+          // Talk: "Plan minutes (unlimited) X,XXX"
+          const talkMatch = before.match(/Plan minutes\s*\(unlimited\)\s+([\d,]+)/);
+          if (talkMatch) talkMin = parseInt(talkMatch[1].replace(/,/g, ''), 10) || 0;
+          // Text: "Plan messages (unlimited) XXX"
+          const txtMatch = before.match(/Plan messages\s*\(unlimited\)\s+([\d,]+)/);
+          if (txtMatch) textCnt = parseInt(txtMatch[1].replace(/,/g, ''), 10) || 0;
+          if (talkMin > 0 || textCnt > 0) {
+            console.log('[MERGE] Bracket-fallback talk/text for', wireless, ':', talkMin, '/', textCnt);
+          }
+        }
+      }
+
+      console.log('[MERGE]', wireless, '→ data:', dataGB, 'GB, talk:', talkMin, ', text:', textCnt,
+        '(sources: s.data=', s.dataGB, 'd.data=', d.dataGB, ')');
 
       // Zero usage: per AT&T audit skill rules
       // Phone/Smartphone: 0 data + 0 voice + 0 messages
@@ -404,7 +456,7 @@ window.BillPDFParser = (function () {
       const detailPages = parseATTDetailPages(pages);
       console.log('[PDF] Detail pages:', Object.keys(detailPages).length, 'lines');
 
-      lineProfiles = mergeATTData(summaryData, detailPages);
+      lineProfiles = mergeATTData(summaryData, detailPages, pages);
       console.log('[PDF] Merged profiles:', Object.keys(lineProfiles).length, 'lines');
 
       // Log extraction quality
