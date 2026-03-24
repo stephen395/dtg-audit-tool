@@ -46,6 +46,12 @@
         parsedUpgrade = await parseFileAsync(upgradeFile);
       }
 
+      // Debug: log parsed data
+      console.log('Parsed usage:', parsedUsage ? { rows: parsedUsage.rows.length, headers: parsedUsage.headers.slice(0, 5) } : 'none');
+      console.log('Parsed upgrade:', parsedUpgrade ? { rows: parsedUpgrade.rows.length, headers: parsedUpgrade.headers.slice(0, 5) } : 'none');
+      if (parsedUsage && parsedUsage.rows[0]) console.log('First usage row keys:', Object.keys(parsedUsage.rows[0]).slice(0, 8));
+      if (parsedUpgrade && parsedUpgrade.rows[0]) console.log('First upgrade row keys:', Object.keys(parsedUpgrade.rows[0]).slice(0, 8));
+
       DTG.updateProcessingProgress(30);
       DTG.updateProcessingStatus('Building line profiles...');
 
@@ -80,6 +86,15 @@
 
       const profiles = result.profiles;
       const meta = result.meta || {};
+
+      // Debug: log profile stats
+      const profileCount = Object.keys(profiles).length;
+      const zeroCount = Object.values(profiles).filter(p => p.zeroUsage).length;
+      console.log(`Profiles built: ${profileCount} lines, ${zeroCount} zero usage`);
+      if (profileCount > 0) {
+        const sample = Object.values(profiles)[0];
+        console.log('Sample profile:', { wireless: sample.wireless, userName: sample.userName, ratePlan: sample.ratePlan, mrc: sample.mrc, zeroUsage: sample.zeroUsage, gbTotal: sample.gbTotal });
+      }
 
       DTG.updateProcessingProgress(50);
       DTG.updateProcessingStatus('Analyzing zero usage lines...');
@@ -162,7 +177,11 @@
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const text = e.target.result;
+        // Strip BOM and clean text
+        let text = e.target.result;
+        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        text = text.replace(/^\uFEFF/, '');
+
         const firstLine = text.split('\n')[0];
         const delimiter = firstLine.includes('\t') ? '\t' : ',';
 
@@ -170,8 +189,19 @@
           header: true,
           delimiter,
           skipEmptyLines: true,
+          transformHeader: (h) => h.replace(/^"|"$/g, '').trim(),
           complete: (results) => {
-            resolve({ rows: results.data, headers: results.meta.fields || [] });
+            // Clean any remaining quotes from row values
+            const cleaned = results.data.map(row => {
+              const r = {};
+              for (const [k, v] of Object.entries(row)) {
+                const cleanKey = k.replace(/^"|"$/g, '').trim();
+                r[cleanKey] = typeof v === 'string' ? v.replace(/^"|"$/g, '').trim() : v;
+              }
+              return r;
+            });
+            const headers = (results.meta.fields || []).map(h => h.replace(/^"|"$/g, '').trim());
+            resolve({ rows: cleaned, headers });
           },
           error: (err) => reject(err),
         });
