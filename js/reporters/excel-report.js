@@ -17,7 +17,7 @@ window.ExcelReporter = (function () {
    * @returns {XLSX.WorkBook}
    */
   function generate(data) {
-    const { carrier, clientName, billingPeriod, zeroUsageResults, usageReport, ratePlans, profiles } = data;
+    const { carrier, clientName, billingPeriod, zeroUsageResults, usageReport, ratePlans, profiles, planComparison, planComparisonSummary } = data;
     const wb = XLSX.utils.book_new();
     const carrierName = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile' }[carrier] || carrier;
 
@@ -168,25 +168,34 @@ window.ExcelReporter = (function () {
 
     // ── Sheet 4: Rate Plan Summary ──
     const rpHeaders = [
-      'Rate Plan', '# Lines', 'Total Monthly', 'Per Line',
-      'Zero Usage Lines', '% Zero Usage'
+      'Rate Plan', 'Rate Code', '# Lines', 'Per Line', 'Total Monthly',
+      'Group Discount', 'Line Count Tier', 'Zero Usage Lines', '% Zero Usage'
     ];
 
-    const rpData = ratePlans.plans.map(p => [
-      p.planName,
-      p.lineCount,
-      fmtMoney(p.totalMonthly),
-      fmtMoney(p.perLine),
-      p.zeroUsageLines,
-      p.zeroUsagePercent.toFixed(0) + '%',
-    ]);
+    const rpData = ratePlans.plans.map(p => {
+      const gd = p.groupDiscount || {};
+      return [
+        p.planName,
+        p.rateCode || '',
+        p.lineCount,
+        fmtMoney(p.perLine),
+        fmtMoney(p.totalMonthly),
+        gd.detected ? gd.tier : '',
+        p.lineCountTier || '',
+        p.zeroUsageLines,
+        p.zeroUsagePercent.toFixed(0) + '%',
+      ];
+    });
 
     // Total row
     rpData.push([
       'TOTAL',
+      '',
       ratePlans.summary.totalLines,
-      fmtMoney(ratePlans.summary.totalMonthly),
       fmtMoney(ratePlans.summary.totalMonthly / Math.max(ratePlans.summary.totalLines, 1)),
+      fmtMoney(ratePlans.summary.totalMonthly),
+      '',
+      '',
       '',
       '',
     ]);
@@ -198,11 +207,54 @@ window.ExcelReporter = (function () {
 
     const rpSheet = XLSX.utils.aoa_to_sheet([...rpTitle, rpHeaders, ...rpData]);
     rpSheet['!cols'] = [
-      { wch: 45 }, { wch: 10 }, { wch: 16 }, { wch: 12 },
-      { wch: 14 }, { wch: 12 },
+      { wch: 45 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 16 },
+      { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
     ];
 
     XLSX.utils.book_append_sheet(wb, rpSheet, 'Rate Plan Summary');
+
+    // ── Sheet 5: Rate Plan Comparison ──
+    if (planComparison && planComparison.length > 0) {
+      const pcHeaders = [
+        'Wireless Number', 'User Name', 'Current Plan', 'Current MRC',
+        'Proposed Plan', 'Proposed MRC', 'Monthly Savings'
+      ];
+
+      const pcData = planComparison.map(p => [
+        p.wireless,
+        p.userName,
+        p.currentPlan,
+        fmtMoney(p.currentMRC),
+        p.proposedPlan || '',
+        p.proposedMRC !== null ? fmtMoney(p.proposedMRC) : '',
+        p.proposedMRC !== null ? fmtMoney(p.savings) : '',
+      ]);
+
+      const summary = planComparisonSummary || {};
+      const pcTitle = [
+        [`${carrierName} Rate Plan Comparison — ${clientName}`],
+        [`Current Total: $${(summary.currentTotal || 0).toFixed(2)}/mo → Proposed: $${(summary.proposedTotal || 0).toFixed(2)}/mo | Annual Savings: $${(summary.annualSavings || 0).toFixed(2)}`],
+        [],
+      ];
+
+      const pcSheet = XLSX.utils.aoa_to_sheet([...pcTitle, pcHeaders, ...pcData]);
+
+      // Total row
+      XLSX.utils.sheet_add_aoa(pcSheet, [[
+        'TOTAL', `${planComparison.length} lines`, '',
+        fmtMoney(summary.currentTotal || 0),
+        `${summary.linesChanged || 0} changed`,
+        fmtMoney(summary.proposedTotal || 0),
+        fmtMoney(summary.monthlySavings || 0),
+      ]], { origin: -1 });
+
+      pcSheet['!cols'] = [
+        { wch: 15 }, { wch: 20 }, { wch: 35 }, { wch: 14 },
+        { wch: 35 }, { wch: 14 }, { wch: 14 },
+      ];
+
+      XLSX.utils.book_append_sheet(wb, pcSheet, 'Plan Comparison');
+    }
 
     return wb;
   }
