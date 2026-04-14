@@ -193,13 +193,68 @@
       DTG.updateProcessingProgress(90);
       DTG.updateProcessingStatus('Rendering results...');
 
+      // ── Sheet View Calculation (Google Sheet formula replica) ──
+      let sheetViewResults = null;
+      let discrepancyReport = null;
+      if (carrier === 'att' && window.SheetView && parsedUsage) {
+        try {
+          sheetViewResults = window.SheetView.calculate(
+            parsedUsage ? parsedUsage.rows : [],
+            parsedUpgrade ? parsedUpgrade.rows : null
+          );
+          console.log('[AUDIT] Sheet View:', sheetViewResults.totalLines, 'lines,',
+                       sheetViewResults.zeroUsageCount, 'zero usage,',
+                       '$' + sheetViewResults.totalSavings.toFixed(2), 'savings');
+
+          // Render Sheet View tabs
+          const sheetUsageEl = document.getElementById('sheet-usage-content');
+          const sheetZeroEl = document.getElementById('sheet-zero-usage-content');
+          if (sheetUsageEl) window.SheetView.renderSheetUsageReport(sheetViewResults, sheetUsageEl);
+          if (sheetZeroEl) window.SheetView.renderSheetZeroUsageReport(sheetViewResults, sheetZeroEl);
+
+          // Update Sheet Zero Usage count badge
+          const sheetBadge = document.getElementById('sheet-zero-usage-count');
+          if (sheetBadge) sheetBadge.textContent = sheetViewResults.zeroUsageCount;
+        } catch (e) {
+          console.error('[AUDIT] Sheet View error:', e);
+        }
+      }
+
+      // ── Discrepancy Detection ──
+      if (sheetViewResults && window.DiscrepancyEngine) {
+        try {
+          discrepancyReport = window.DiscrepancyEngine.compare(
+            { zeroUsageResults, zeroUsageSummary, usageReport },
+            sheetViewResults
+          );
+          console.log('[AUDIT] Discrepancies:', discrepancyReport.discrepancyCount, 'of',
+                       discrepancyReport.totalLines, 'lines',
+                       '(' + discrepancyReport.accuracyScore.toFixed(1) + '% accuracy)');
+
+          // Render Discrepancy tab
+          const discEl = document.getElementById('discrepancy-content');
+          if (discEl) window.DiscrepancyEngine.render(discrepancyReport, discEl);
+
+          // Update discrepancy badge
+          const discBadge = document.getElementById('discrepancy-count-badge');
+          if (discBadge && discrepancyReport.discrepancyCount > 0) {
+            discBadge.textContent = discrepancyReport.discrepancyCount;
+            discBadge.style.display = '';
+          }
+        } catch (e) {
+          console.error('[AUDIT] Discrepancy error:', e);
+        }
+      }
+
       // Store for exports
       const auditData = {
         carrier, clientName,
         billingPeriod: meta.billingCycles ? meta.billingCycles.join(' → ') : (meta.billingPeriods ? meta.billingPeriods.join(' → ') : ''),
         profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, billData,
+        sheetViewResults, discrepancyReport,
       };
       window.DTG.auditData = auditData;
+      window.lastAuditResults = auditData;
 
       // Populate all UI
       populateDashboardKPIs(auditData);
@@ -210,9 +265,53 @@
       populatePlanComparison(auditData);
       wireExportButtons(auditData);
 
+      // ── Status Indicators ──
+      const statusEl = document.getElementById('status-indicators');
+      if (statusEl) {
+        statusEl.style.display = '';
+        document.getElementById('status-last-audit').textContent = 'Last audit: ' + new Date().toLocaleString();
+        document.getElementById('status-discrepancies').textContent = 'Discrepancies: ' + (discrepancyReport ? discrepancyReport.discrepancyCount : '--');
+        document.getElementById('status-accuracy').textContent = 'Accuracy: ' + (discrepancyReport ? discrepancyReport.accuracyScore.toFixed(1) + '%' : '--');
+        const logEntries = window.AuditLog ? window.AuditLog.getLog() : [];
+        const codeUpdates = logEntries.filter(e => e.type === 'code_update').length;
+        document.getElementById('status-code-updates').textContent = 'Code updates: ' + codeUpdates;
+      }
+
       // Log to audit history
       if (typeof DTG.logAuditHistory === 'function') {
         DTG.logAuditHistory(auditData);
+      }
+
+      // ── Audit Log entry ──
+      if (window.AuditLog) {
+        try {
+          window.AuditLog.logAuditRun({
+            carrier, clientName,
+            filesUploaded: Object.keys(uiState.files || {}).filter(k => uiState.files[k]),
+            auditMode: billData ? 'pdf+csv' : 'csv',
+            results: {
+              totalLines: usageReport ? usageReport.summary.totalLines : 0,
+              zeroUsageLines: zeroUsageSummary ? zeroUsageSummary.totalZeroUsage : 0,
+              totalMRC: usageReport ? usageReport.summary.totalMRC : 0,
+              estimatedMonthlySavings: zeroUsageSummary ? zeroUsageSummary.totalMonthlySavings : 0,
+              toolView: {
+                zeroUsageCount: zeroUsageSummary ? zeroUsageSummary.totalZeroUsage : 0,
+                cancelCount: zeroUsageSummary ? zeroUsageSummary.cancelCount : 0,
+                suspendCount: zeroUsageSummary ? zeroUsageSummary.suspendCount : 0,
+                keepCount: zeroUsageSummary ? zeroUsageSummary.keepCount : 0,
+                totalSavings: zeroUsageSummary ? zeroUsageSummary.totalMonthlySavings : 0,
+              },
+              sheetView: sheetViewResults ? {
+                zeroUsageCount: sheetViewResults.zeroUsageCount,
+                totalSavings: sheetViewResults.totalSavings,
+              } : null,
+              discrepancyCount: discrepancyReport ? discrepancyReport.discrepancyCount : 0,
+              discrepancies: discrepancyReport ? discrepancyReport.discrepancies.slice(0, 10) : [],
+            },
+          });
+        } catch (e) {
+          console.error('[AUDIT] Log error:', e);
+        }
       }
 
       DTG.updateProcessingProgress(100);
