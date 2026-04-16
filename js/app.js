@@ -70,6 +70,10 @@
       console.log('[AUDIT] Mode:', pdfOnlyMode ? 'PDF-ONLY' : 'CSV + optional PDF');
 
       let profiles, meta;
+      // Declared in the outer scope so post-parse code (Sheet View, exports,
+      // etc.) can still reference them after the PDF-vs-CSV branch closes.
+      let parsedUsage = null;
+      let parsedUpgrade = null;
 
       if (pdfOnlyMode) {
         // ── PDF-ONLY AUDIT (small accounts) ──
@@ -114,8 +118,8 @@
 
       } else {
         // ── CSV-BASED AUDIT (standard) ──
-        const parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
-        const parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
+        parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
+        parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
 
         console.log('[AUDIT] Carrier:', carrier);
         console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
