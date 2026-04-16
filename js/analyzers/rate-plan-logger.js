@@ -55,27 +55,40 @@ window.RatePlanLogger = (function () {
           history: [],
         };
       } else {
-        log[key].lastSeen = now;
-        if (!log[key].clients.includes(clientName)) {
-          log[key].clients.push(clientName);
+        // Normalize entries saved under an older schema so field access is safe.
+        const entry = log[key];
+        if (!Array.isArray(entry.clients)) entry.clients = [];
+        if (!Array.isArray(entry.rateCodes)) entry.rateCodes = entry.rateCode ? [entry.rateCode] : [];
+        if (!Array.isArray(entry.history)) entry.history = [];
+        if (typeof entry.totalLinesSeen !== 'number') entry.totalLinesSeen = 0;
+        if (typeof entry.avgMRC !== 'number') entry.avgMRC = 0;
+        if (typeof entry.perLineMRC !== 'number') entry.perLineMRC = entry.avgMRC || 0;
+        if (typeof entry.occurrences !== 'number') entry.occurrences = 0;
+        if (typeof entry.rateCode !== 'string') entry.rateCode = '';
+        if (typeof entry.groupDiscount !== 'string') entry.groupDiscount = 'none';
+        if (typeof entry.lineCountTier !== 'string') entry.lineCountTier = '';
+
+        entry.lastSeen = now;
+        if (!entry.clients.includes(clientName)) {
+          entry.clients.push(clientName);
         }
-        log[key].totalLinesSeen += plan.lineCount;
-        log[key].avgMRC = ((log[key].avgMRC * log[key].occurrences) + plan.perLine) / (log[key].occurrences + 1);
-        log[key].perLineMRC = plan.perLine || log[key].perLineMRC;
-        log[key].occurrences++;
+        entry.totalLinesSeen += plan.lineCount;
+        entry.avgMRC = ((entry.avgMRC * entry.occurrences) + plan.perLine) / (entry.occurrences + 1);
+        entry.perLineMRC = plan.perLine || entry.perLineMRC;
+        entry.occurrences++;
 
         // Update rate code if we got a new one
-        if (plan.rateCode && !log[key].rateCodes.includes(plan.rateCode)) {
-          log[key].rateCodes.push(plan.rateCode);
+        if (plan.rateCode && !entry.rateCodes.includes(plan.rateCode)) {
+          entry.rateCodes.push(plan.rateCode);
         }
-        if (plan.rateCode) log[key].rateCode = plan.rateCode;
+        if (plan.rateCode) entry.rateCode = plan.rateCode;
 
         // Update group discount info
         if (groupInfo.detected) {
-          log[key].groupDiscount = groupInfo.tier || log[key].groupDiscount;
-          log[key].groupDiscountDetected = true;
+          entry.groupDiscount = groupInfo.tier || entry.groupDiscount;
+          entry.groupDiscountDetected = true;
         }
-        log[key].lineCountTier = plan.lineCountTier || log[key].lineCountTier;
+        entry.lineCountTier = plan.lineCountTier || entry.lineCountTier;
       }
 
       // Add history entry

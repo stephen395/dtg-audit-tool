@@ -290,10 +290,13 @@ window.ATTParser = (function () {
         zeroUsage = totalKb === 0 && totalMin === 0 && totalMsg === 0;
       }
 
-      // MRC calculation (3-month average of total charges)
-      const totalChargesSum = Object.values(billingCycles).reduce((s, c) => s + (c.totalCurrent || 0), 0);
+      // MRC = Total Current Charges from the FIRST (earliest) billing cycle.
+      // Matches the convention Stephen's reference audits use — represents the
+      // starting monthly charge for the line, including any activity that hit
+      // in that cycle. Falls back to 0 if no cycles were parsed.
+      const earliest = cycleKeys.length > 0 ? billingCycles[cycleKeys[0]] : {};
+      const mrc = earliest.totalCurrent || 0;
       const numCycles = Math.max(cycleKeys.length, 1);
-      const mrc = totalChargesSum / Math.max(numCycles, 1);
 
       // Do not cancel flag
       const userName = contract.userName || (bRows[0] && bRows[0].userName) || 'Unknown';
