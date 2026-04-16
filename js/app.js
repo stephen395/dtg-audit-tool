@@ -18,6 +18,36 @@
     if (el) el.textContent = value;
   }
 
+  /**
+   * Sniff which carrier an uploaded CSV actually belongs to, based on its headers.
+   * Returns 'att' | 'verizon' | 'tmobile' | null.
+   * Used so the pipeline can fail fast with a helpful message when the user
+   * picks the wrong carrier instead of silently building zero profiles.
+   */
+  function detectCarrierFromHeaders(headers) {
+    if (!headers || !headers.length) return null;
+    const h = headers.map(c => String(c || '').toLowerCase().trim());
+    const has = (needle) => h.some(c => c.includes(needle));
+
+    // AT&T Premier exports
+    if (has('wireless number and descriptions') ||
+        has('foundation account') ||
+        has('billing account name')) return 'att';
+
+    // Verizon ECPD / Tangoe TXT exports
+    if (has('your calling plan') ||
+        has('bill period') ||
+        (has('wireless number') && has('data usage')) ||
+        has('previous balance')) return 'verizon';
+
+    // T-Mobile Business exports
+    if (has('subscriber number') ||
+        has('mobile number') ||
+        has('equipment installment')) return 'tmobile';
+
+    return null;
+  }
+
   // ═══════════════════════════════════════════════════════
   // MAIN AUDIT PIPELINE
   // ═══════════════════════════════════════════════════════
@@ -98,6 +128,19 @@
           console.log('[AUDIT] Tangoe TCC format auto-detected from headers');
         }
 
+        // Detect the carrier the headers actually belong to, and bail out with a
+        // clear error if it disagrees with what the user selected.
+        if (!isTangoe && parsedUsage) {
+          const detected = detectCarrierFromHeaders(parsedUsage.headers);
+          if (detected && detected !== carrier) {
+            const pretty = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile' };
+            throw new Error(
+              `Carrier mismatch: you selected ${pretty[carrier] || carrier}, but the uploaded file looks like ${pretty[detected] || detected}. ` +
+              `Click "New Audit" and choose ${pretty[detected] || detected}.`
+            );
+          }
+        }
+
         DTG.updateProcessingProgress(25);
         DTG.updateProcessingStatus('Building line profiles...');
 
@@ -135,6 +178,15 @@
       if (profileCount > 0) {
         const sample = Object.values(profiles)[0];
         console.log('[AUDIT] Sample:', JSON.stringify({ w: sample.wireless, u: sample.userName, plan: sample.ratePlan, mrc: sample.mrc, zu: sample.zeroUsage, gb: sample.gbTotal }));
+      } else if (!pdfOnlyMode) {
+        // The parser couldn't extract a single line. Bail out loudly instead of
+        // silently rendering a dashboard full of zeroes — usually this means the
+        // CSV format doesn't match the selected carrier.
+        const pretty = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile', tangoe: 'Tangoe' };
+        throw new Error(
+          `No lines were parsed from the uploaded file(s). The columns don't match the ${pretty[carrier] || carrier} format. ` +
+          `Double-check the carrier selection and the file you uploaded.`
+        );
       }
 
       DTG.updateProcessingProgress(65);
