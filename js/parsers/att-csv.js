@@ -10,11 +10,14 @@ window.ATTParser = (function () {
   function parseMoney(val) {
     if (val == null || val === '') return 0;
     let s = String(val).trim();
-    const negative = s.startsWith('(') || s.startsWith('-');
+    // Accounting-style negatives use parens: (7.23) -> -7.23. A leading "-"
+    // already makes parseFloat return a negative, so do NOT flag those as
+    // "negative" too — that would flip the sign twice and turn -7.23 into 7.23.
+    const parensNegative = s.startsWith('(') && s.endsWith(')');
     s = s.replace(/[$,()]/g, '').trim();
     const v = parseFloat(s);
     if (isNaN(v)) return 0;
-    return negative ? -v : v;
+    return parensNegative ? -Math.abs(v) : v;
   }
 
   function parseInt2(val) {
@@ -99,6 +102,30 @@ window.ATTParser = (function () {
       accountName: cleanCol(rows[0][colMap.account_name]),
       foundationAccount: cleanCol(rows[0][colMap.foundation_account]),
     };
+
+    // ── Bill-level totals (per cycle), computed across ALL rows before filtering.
+    // The carrier's "Current Charges" on the bill is the sum of EVERY row in the
+    // export — phone lines plus Group-level rows and empty-wireless adjustment
+    // rows (shared pool allocations, account-wide credits). If we only summed
+    // phone rows we'd miss those, and the dashboard total wouldn't match the
+    // real bill. Keyed by cycle date so downstream code can pick the cycle.
+    const billByCycle = {};
+    const bump = (cycle, field, val) => {
+      if (!billByCycle[cycle]) {
+        billByCycle[cycle] = { totalCurrent: 0, monthlyCharges: 0, activity: 0, taxes: 0, fees: 0 };
+      }
+      billByCycle[cycle][field] += val;
+    };
+    for (const row of rows) {
+      const cycle = cleanCol(row[colMap.cycle_date]);
+      if (!cycle || cycle === 'nan') continue;
+      bump(cycle, 'totalCurrent',   parseMoney(row[colMap.total_current]));
+      bump(cycle, 'monthlyCharges', parseMoney(row[colMap.monthly_charges]));
+      bump(cycle, 'activity',       parseMoney(row[colMap.activity]));
+      bump(cycle, 'taxes',          parseMoney(row[colMap.taxes]));
+      bump(cycle, 'fees',           parseMoney(row[colMap.fees]));
+    }
+    meta.billByCycle = billByCycle;
 
     // Parse each row
     for (const row of rows) {
@@ -318,6 +345,7 @@ window.ATTParser = (function () {
         // Charges
         latestMonthly: latest.monthlyCharges || 0,
         latestTotal: latest.totalCurrent || 0,
+        latestActivity: latest.activity || 0,
         latestTaxes: latest.taxes || 0,
         latestFees: latest.fees || 0,
         mrc,
