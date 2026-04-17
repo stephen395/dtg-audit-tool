@@ -88,8 +88,22 @@ window.UsageReportAnalyzer = (function () {
     const totalMRC = lines.reduce((s, l) => s + l.mrc, 0);
     const totalEquip = lines.reduce((s, l) => s + l.equipmentCharges, 0);
     const totalChargesAll = lines.reduce((s, l) => s + l.totalCharges, 0);
-    const upgradeEligible = lines.filter(l => !l.hasActiveContract && l.deviceType.toLowerCase().includes('phone')).length;
+    const upgradeEligible = lines.filter(l => !l.hasActiveContract && (l.deviceType || '').toLowerCase().includes('phone')).length;
     const inContract = lines.filter(l => l.hasActiveContract).length;
+
+    // ── Bill breakdown — sums the LATEST billing cycle values across all
+    // profiles. Adding plan + activity + surcharges + taxes reproduces the
+    // carrier's "Current Charges" total so "Total Monthly Spend" on the
+    // dashboard matches what the client actually pays this month.
+    const allProfiles = Object.values(profiles);
+    const billPlan       = allProfiles.reduce((s, p) => s + (p.latestMonthly || 0), 0);
+    const billActivity   = allProfiles.reduce((s, p) => s + (p.latestActivity || 0), 0);
+    const billSurcharges = allProfiles.reduce((s, p) => s + (p.latestFees || 0), 0);
+    const billTaxes      = allProfiles.reduce((s, p) => s + (p.latestTaxes || 0), 0);
+    const billTotal      = allProfiles.reduce((s, p) => s + (p.latestTotal || 0), 0);
+    // Equipment installments come from the contract file (not the bill CSV),
+    // so we still surface them separately for the device-payments panel.
+    const billEquipment  = allProfiles.reduce((s, p) => s + (p.monthlyInstallment || 0), 0);
 
     const summary = {
       totalLines: lines.length,
@@ -103,6 +117,14 @@ window.UsageReportAnalyzer = (function () {
       upgradeEligible: upgradeEligible,
       inContract: inContract,
       outOfContract: lines.length - inContract,
+      // Actual bill breakdown (latest billing cycle — matches client's current bill)
+      billTotal,
+      billPlan,
+      billEquipment,
+      billActivity,
+      billSurcharges,
+      billTaxes,
+      avgBillPerLine: lines.length > 0 ? billTotal / lines.length : 0,
     };
 
     return { lines, inventory, summary };

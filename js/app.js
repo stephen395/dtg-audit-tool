@@ -432,14 +432,43 @@
     const ur = data.usageReport;
     const zu = data.zeroUsageSummary;
     const inv = ur.inventory;
+    const s = ur.summary;
 
-    // Spend Overview — use MRC (plan cost only), not total charges
-    setKPI('kpi-total-spend', fmtMoney(ur.summary.totalMRC));
-    setKPI('kpi-avg-cost', fmtMoney(ur.summary.avgChargesPerLine));
-    // Surcharges from actual tax/fee fields
-    const totalTaxesFees = Object.values(data.profiles).reduce((s, p) => s + (p.taxes || p.latestTaxes || 0) + (p.fees || p.latestFees || 0), 0);
-    setKPI('kpi-surcharges', fmtMoney(totalTaxesFees));
-    setKPI('kpi-equipment', fmtMoney(ur.summary.totalEquipment));
+    // Prefer parser-computed bill totals (sum of ALL rows in the billing cycle,
+    // including group-level rows and account-wide adjustments). Those match the
+    // carrier's "Current Charges" on the bill. Falls back to profile-summed
+    // values — which miss the non-line rows — when only per-line data is
+    // available (Verizon, T-Mobile, PDF-only mode).
+    const cycles = (data.meta && data.meta.billByCycle) || {};
+    const cycleKeys = Object.keys(cycles).sort();
+    const bill = cycleKeys.length > 0 ? cycles[cycleKeys[cycleKeys.length - 1]] : null;
+
+    const totalSpend  = bill ? bill.totalCurrent   : (s.billTotal      || s.totalMRC || 0);
+    const planTotal   = bill ? bill.monthlyCharges : (s.billPlan       || s.totalMRC || 0);
+    const feesTotal   = bill ? bill.fees           : (s.billSurcharges || 0);
+    const taxesTotal  = bill ? bill.taxes          : (s.billTaxes      || 0);
+    const activityVal = bill ? bill.activity       : (s.billActivity   || 0);
+    // Equipment installments always come from the contract file, not bill rows.
+    const equipTotal  = s.billEquipment || s.totalEquipment || 0;
+
+    // Hero card: the real "Current Charges" on this month's bill.
+    setKPI('kpi-total-spend', fmtMoney(totalSpend));
+    setKPI('kpi-avg-cost',    fmtMoney(s.totalLines ? totalSpend / s.totalLines : 0));
+    setKPI('kpi-line-count',  s.totalLines || 0);
+
+    // Breakdown cards: each is a line-item from the carrier statement.
+    setKPI('kpi-plan-charges', fmtMoney(planTotal));
+    setKPI('kpi-equipment',    fmtMoney(equipTotal));
+    setKPI('kpi-surcharges',   fmtMoney(feesTotal));
+    setKPI('kpi-taxes',        fmtMoney(taxesTotal));
+
+    // Activity is often net-negative (credits outweigh new charges). Render with
+    // a minus sign + green so it reads as a credit on the dashboard.
+    const activityEl = document.getElementById('kpi-activity');
+    if (activityEl) {
+      activityEl.textContent = (activityVal < 0 ? '-' : '') + fmtMoney(Math.abs(activityVal));
+      activityEl.style.color = activityVal < 0 ? 'var(--success)' : '';
+    }
 
     // Inventory
     setKPI('kpi-total-lines', inv.total);

@@ -2717,44 +2717,47 @@
                      ============================================= -->
                 <div id="tab-dashboard" class="tab-panel active">
 
-                    <!-- Spend Overview -->
+                    <!-- Spend Overview — real bill amount + breakdown -->
                     <div class="dashboard-section">
                         <div class="dashboard-section-title">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                             Spend Overview
                         </div>
-                        <div class="kpi-row">
-                            <div class="kpi-card accent">
-                                <div class="kpi-card-label">Total Monthly Spend</div>
-                                <div id="kpi-total-spend" class="kpi-card-value">$0.00</div>
-                                <div class="kpi-card-sub">Current billing period</div>
-                                <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                                </div>
+                        <!-- Hero card: matches the client's actual bill this cycle -->
+                        <div class="kpi-card accent" style="padding:20px 24px;margin-bottom:12px;">
+                            <div class="kpi-card-label" style="font-size:12px;letter-spacing:0.08em;">Total Monthly Spend — Current Bill</div>
+                            <div id="kpi-total-spend" class="kpi-card-value" style="font-size:36px;font-weight:700;margin-top:6px;">$0.00</div>
+                            <div class="kpi-card-sub"><span id="kpi-avg-cost">$0.00</span> per line · <span id="kpi-line-count">0</span> active lines</div>
+                            <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                             </div>
-                            <div class="kpi-card info">
-                                <div class="kpi-card-label">Avg Cost Per Line</div>
-                                <div id="kpi-avg-cost" class="kpi-card-value">$0.00</div>
-                                <div class="kpi-card-sub">Per active line</div>
-                                <div class="kpi-card-icon" style="background:var(--info-dim);color:var(--info);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                                </div>
+                        </div>
+                        <!-- Breakdown row: components that add up to the bill -->
+                        <div class="kpi-row" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
+                            <div class="kpi-card" style="padding:14px 16px;">
+                                <div class="kpi-card-label" style="font-size:10px;">Plan Charges</div>
+                                <div id="kpi-plan-charges" class="kpi-card-value" style="font-size:20px;">$0.00</div>
+                                <div class="kpi-card-sub">Rate plans</div>
                             </div>
-                            <div class="kpi-card warning">
-                                <div class="kpi-card-label">Total Surcharges &amp; Fees</div>
-                                <div id="kpi-surcharges" class="kpi-card-value">$0.00</div>
-                                <div class="kpi-card-sub">Taxes, fees, surcharges</div>
-                                <div class="kpi-card-icon" style="background:var(--warning-dim);color:var(--warning);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                </div>
-                            </div>
-                            <div class="kpi-card danger">
-                                <div class="kpi-card-label">Equipment Charges</div>
-                                <div id="kpi-equipment" class="kpi-card-value">$0.00</div>
+                            <div class="kpi-card" style="padding:14px 16px;">
+                                <div class="kpi-card-label" style="font-size:10px;">Equipment</div>
+                                <div id="kpi-equipment" class="kpi-card-value" style="font-size:20px;">$0.00</div>
                                 <div class="kpi-card-sub">Device installments</div>
-                                <div class="kpi-card-icon" style="background:var(--danger-dim);color:var(--danger);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                                </div>
+                            </div>
+                            <div class="kpi-card" style="padding:14px 16px;">
+                                <div class="kpi-card-label" style="font-size:10px;">Surcharges</div>
+                                <div id="kpi-surcharges" class="kpi-card-value" style="font-size:20px;">$0.00</div>
+                                <div class="kpi-card-sub">Company fees</div>
+                            </div>
+                            <div class="kpi-card" style="padding:14px 16px;">
+                                <div class="kpi-card-label" style="font-size:10px;">Taxes</div>
+                                <div id="kpi-taxes" class="kpi-card-value" style="font-size:20px;">$0.00</div>
+                                <div class="kpi-card-sub">Govt fees &amp; taxes</div>
+                            </div>
+                            <div class="kpi-card" style="padding:14px 16px;">
+                                <div class="kpi-card-label" style="font-size:10px;">Activity / Credits</div>
+                                <div id="kpi-activity" class="kpi-card-value" style="font-size:20px;">$0.00</div>
+                                <div class="kpi-card-sub">Since last bill</div>
                             </div>
                         </div>
                     </div>
