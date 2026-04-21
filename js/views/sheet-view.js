@@ -298,204 +298,183 @@
     return _results;
   }
 
-  // ─── Rendering ──────────────────────────────────────────────────────────────
+  // ─── Rendering (Tabulator editable grids) ──────────────────────────────────
+  //
+  // Each Sheet-View tab renders as an interactive Tabulator grid that feels
+  // like Google Sheets: click a cell to edit, drag the column edge to resize,
+  // type in the header filter to narrow rows, sort by clicking a header. Copy
+  // in / copy out work with Ctrl+C / Ctrl+V against any external spreadsheet.
+  // A "Download as Excel" button on each tab exports the current (possibly
+  // edited) grid state as .xlsx via SheetJS.
 
   /**
-   * Column headers matching the Google Sheet "Usage Report" tab exactly.
+   * Tabulator column definitions for the Usage Report tab.
+   * Mirrors the Google Sheet's Usage Report tab layout & column order.
+   * Every column is editable so the sheet feels live.
    */
   const USAGE_COLUMNS = [
-    { key: 'wirelessNumber',   label: 'A — Wireless Number',        fmt: null },
-    { key: 'userName',         label: 'B — User Name',               fmt: null },
-    { key: 'deviceType',      label: 'C — Device Type',             fmt: null },
-    { key: 'gbTotal90',       label: 'D — 90 Day GB Total',         fmt: 2 },
-    { key: 'gbAvg90',         label: 'E — 90 Day GB Avg',           fmt: 2 },
-    { key: 'minTotal90',      label: 'F — 90 Day Min Total',        fmt: 0 },
-    { key: 'minAvg90',        label: 'G — 90 Day Min Avg',          fmt: 1 },
-    { key: 'msgTotal90',      label: 'H — 90 Day Msg Total',        fmt: 0 },
-    { key: 'msgAvg90',        label: 'I — 90 Day Msg Avg',          fmt: 1 },
-    { key: 'mrc',             label: 'J — MRC',                     fmt: 'currency' },
-    { key: 'contractEndDate', label: 'K — Contract End Date',       fmt: 'date' }
+    { title: 'Wireless Number', field: 'wirelessNumber', editor: 'input', headerFilter: 'input', width: 140 },
+    { title: 'User Name',       field: 'userName',       editor: 'input', headerFilter: 'input', width: 200 },
+    { title: 'Device Type',     field: 'deviceType',     editor: 'input', headerFilter: 'input', width: 140 },
+    { title: '90-Day GB Total', field: 'gbTotal90',      editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 4), bottomCalc: 'sum', bottomCalcFormatter: (c) => numFmt(c.getValue(), 2) },
+    { title: '90-Day GB Avg',   field: 'gbAvg90',        editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 4) },
+    { title: '90-Day Min Total',field: 'minTotal90',     editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 0), bottomCalc: 'sum' },
+    { title: '90-Day Min Avg',  field: 'minAvg90',       editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 1) },
+    { title: '90-Day Msg Total',field: 'msgTotal90',     editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 0), bottomCalc: 'sum' },
+    { title: '90-Day Msg Avg',  field: 'msgAvg90',       editor: 'number', hozAlign: 'right',
+      formatter: (c) => numFmt(c.getValue(), 1) },
+    { title: 'MRC',             field: 'mrc',            editor: 'number', hozAlign: 'right',
+      formatter: (c) => currencyFmt(c.getValue()),
+      bottomCalc: 'sum', bottomCalcFormatter: (c) => currencyFmt(c.getValue()) },
+    { title: 'Contract End',    field: 'contractEndDate',editor: 'input', headerFilter: 'input',
+      formatter: (c) => {
+        const raw = c.getValue();
+        const d = parseDate(raw);
+        return d ? formatDate(d) : (raw || '');
+      } },
   ];
 
-  const ZERO_COLUMNS = [
-    { key: 'wirelessNumber',   label: 'A — Wireless Number',        fmt: null },
-    { key: 'userName',         label: 'B — User Name',               fmt: null },
-    { key: 'deviceType',      label: 'C — Device Type',             fmt: null },
-    { key: 'gbTotal90',       label: 'D — 90 Day GB Total',         fmt: 2 },
-    { key: 'gbAvg90',         label: 'E — 90 Day GB Avg',           fmt: 2 },
-    { key: 'minTotal90',      label: 'F — 90 Day Min Total',        fmt: 0 },
-    { key: 'minAvg90',        label: 'G — 90 Day Min Avg',          fmt: 1 },
-    { key: 'msgTotal90',      label: 'H — 90 Day Msg Total',        fmt: 0 },
-    { key: 'msgAvg90',        label: 'I — 90 Day Msg Avg',          fmt: 1 },
-    { key: 'mrc',             label: 'J — MRC',                     fmt: 'currency' },
-    { key: 'contractEndDate', label: 'K — Contract End Date',       fmt: 'date' },
-    { key: 'isOutOfContract', label: 'Out of Contract',             fmt: 'bool' },
-    { key: 'inSavingsCalc',   label: 'In Savings Calc',             fmt: 'bool' }
-  ];
+  const ZERO_COLUMNS = USAGE_COLUMNS.concat([
+    { title: 'Out of Contract', field: 'isOutOfContract', hozAlign: 'center',
+      formatter: 'tickCross', formatterParams: { allowEmpty: true }, editor: 'tickCross' },
+    { title: 'In Savings',      field: 'inSavingsCalc',   hozAlign: 'center',
+      formatter: 'tickCross', formatterParams: { allowEmpty: true }, editor: 'tickCross' },
+  ]);
 
-  /**
-   * Format a cell value for display.
-   */
-  function formatCell(val, fmt) {
-    if (val === '' || val === null || val === undefined) return '';
-    if (fmt === 'currency') return formatCurrency(val);
-    if (fmt === 'date') return formatDate(parseDate(val));
-    if (fmt === 'bool') return val ? 'Yes' : 'No';
-    if (typeof fmt === 'number') return formatNum(val, fmt);
-    return String(val);
+  function numFmt(v, decimals) {
+    if (v === '' || v === null || v === undefined) return '';
+    const n = parseFloat(v);
+    if (isNaN(n)) return '';
+    return n.toFixed(decimals);
+  }
+  function currencyFmt(v) {
+    if (v === '' || v === null || v === undefined) return '';
+    const n = parseFloat(v);
+    if (isNaN(n)) return '';
+    return '$' + n.toFixed(2);
   }
 
+  // Track the live Tabulator instances so Download / re-render can reach them.
+  const _tables = { usage: null, zero: null };
+
   /**
-   * Build a spreadsheet-style table from column definitions and row data.
+   * Render an editable Tabulator grid into `container`, with a Download-as-
+   * Excel button pinned at the top.
    */
-  function buildTable(columns, rows, tableClass) {
-    const table = document.createElement('table');
-    table.className = 'sheet-table ' + (tableClass || '');
+  function renderGrid(opts) {
+    const { container, columns, data, tableKey, title, subtitle, summary, filename, sheetName } = opts;
+    if (!container) return;
+    container.innerHTML = '';
 
-    // Header row
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    for (let c = 0; c < columns.length; c++) {
-      const th = document.createElement('th');
-      th.textContent = columns[c].label;
-      headerRow.appendChild(th);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'sheet-grid-wrapper';
+    wrapper.style.cssText = 'display:flex;flex-direction:column;gap:8px;height:100%;';
+
+    // Header: title + download button in one row
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;';
+
+    const titleBlock = document.createElement('div');
+    const h2 = document.createElement('h2');
+    h2.textContent = title;
+    h2.style.cssText = 'font-size:16px;font-weight:700;margin:0;color:var(--text);';
+    titleBlock.appendChild(h2);
+    if (subtitle) {
+      const p = document.createElement('p');
+      p.textContent = subtitle;
+      p.style.cssText = 'font-size:12px;color:var(--text-secondary);margin:4px 0 0;';
+      titleBlock.appendChild(p);
     }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
+    header.appendChild(titleBlock);
 
-    // Body rows
-    const tbody = document.createElement('tbody');
-    for (let r = 0; r < rows.length; r++) {
-      const tr = document.createElement('tr');
-      for (let c = 0; c < columns.length; c++) {
-        const td = document.createElement('td');
-        const rawVal = rows[r][columns[c].key];
-        td.textContent = formatCell(rawVal, columns[c].fmt);
+    const dlBtn = document.createElement('button');
+    dlBtn.type = 'button';
+    dlBtn.textContent = '⬇ Download as Excel';
+    dlBtn.style.cssText = 'background:var(--accent);color:#000;border:none;border-radius:6px;padding:8px 14px;font-weight:600;font-size:12px;cursor:pointer;white-space:nowrap;';
+    dlBtn.addEventListener('click', () => {
+      const t = _tables[tableKey];
+      if (!t) return;
+      t.download('xlsx', filename, { sheetName: sheetName });
+    });
+    header.appendChild(dlBtn);
+    wrapper.appendChild(header);
 
-        // Add subtle styling classes for numeric columns
-        if (columns[c].fmt === 'currency') {
-          td.className = 'cell-currency';
-        } else if (typeof columns[c].fmt === 'number') {
-          td.className = 'cell-numeric';
-        }
-
-        tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
+    // Optional summary strip (savings etc.)
+    if (summary) {
+      const summaryEl = document.createElement('div');
+      summaryEl.style.cssText = 'padding:10px 14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:6px;color:#22c55e;font-weight:600;font-size:13px;';
+      summaryEl.textContent = summary;
+      wrapper.appendChild(summaryEl);
     }
-    table.appendChild(tbody);
 
-    return table;
+    // The grid itself
+    const gridDiv = document.createElement('div');
+    gridDiv.style.cssText = 'flex:1 1 auto;min-height:500px;';
+    wrapper.appendChild(gridDiv);
+
+    container.appendChild(wrapper);
+
+    // Destroy any prior instance before re-rendering (prevents stale state when
+    // the user re-runs an audit within the same session).
+    if (_tables[tableKey]) {
+      try { _tables[tableKey].destroy(); } catch (e) { /* ignore */ }
+      _tables[tableKey] = null;
+    }
+
+    _tables[tableKey] = new Tabulator(gridDiv, {
+      data: data,
+      columns: columns,
+      layout: 'fitDataStretch',          // each column sized to its content, last fills
+      height: '600px',
+      movableColumns: true,              // drag to reorder
+      resizableColumns: true,            // drag edge to resize
+      resizableRows: false,
+      reactiveData: true,                // edits flow back to the data array
+      clipboard: true,                   // Ctrl+C / Ctrl+V against the grid
+      clipboardPasteAction: 'replace',   // paste into selected range overwrites
+      selectable: true,                  // click + drag to select a range
+      history: true,                     // Ctrl+Z / Ctrl+Y undo/redo
+      pagination: false,                 // a single scrollable sheet feels more "Google Sheet"
+    });
   }
 
-  /**
-   * Render the Usage Report (Google Sheet "Usage Report" tab replica).
-   *
-   * @param {Object} results   — the results object from calculate()
-   * @param {HTMLElement} container — DOM element to render into
-   */
+  /** Public: render the Usage Report tab as an editable grid. */
   function renderSheetUsageReport(results, container) {
-    if (!container) return;
-    container.innerHTML = '';
-
-    // Title
-    const title = document.createElement('h2');
-    title.textContent = 'Sheet View — Usage Report';
-    title.className = 'sheet-report-title';
-    container.appendChild(title);
-
-    // Subtitle
-    const subtitle = document.createElement('p');
-    subtitle.className = 'sheet-report-subtitle';
-    subtitle.textContent = 'Replicates Google Sheet "Usage Report" tab formulas exactly. ' +
-      'Line source: UNIQUE contract/upgrade eligibility wireless numbers. ' +
-      'Averages: hardcoded /3. MRC: VLOOKUP first match (not averaged).';
-    container.appendChild(subtitle);
-
-    // Line count
-    const countEl = document.createElement('p');
-    countEl.className = 'sheet-report-count';
-    countEl.textContent = 'Total lines: ' + (results ? results.totalLines : 0);
-    container.appendChild(countEl);
-
-    if (!results || !results.usageLines || results.usageLines.length === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'sheet-empty';
-      empty.textContent = 'No usage data to display.';
-      container.appendChild(empty);
-      return;
-    }
-
-    // Build and append table
-    const table = buildTable(USAGE_COLUMNS, results.usageLines, 'usage-report');
-    container.appendChild(table);
+    renderGrid({
+      container,
+      columns: USAGE_COLUMNS,
+      data: (results && results.usageLines) ? results.usageLines.slice() : [],
+      tableKey: 'usage',
+      title: 'Sheet View — Usage Report',
+      subtitle: (results ? results.totalLines : 0) + ' lines · click any cell to edit · drag column edges to resize · sort and filter per column',
+      filename: 'Usage_Report.xlsx',
+      sheetName: 'Usage Report',
+    });
   }
 
-  /**
-   * Render the Zero Usage Report (Google Sheet "Zero Usage Report" tab replica).
-   *
-   * @param {Object} results   — the results object from calculate()
-   * @param {HTMLElement} container — DOM element to render into
-   */
+  /** Public: render the Zero Usage Report tab as an editable grid. */
   function renderSheetZeroUsageReport(results, container) {
-    if (!container) return;
-    container.innerHTML = '';
+    const count = results && results.zeroUsageLines ? results.zeroUsageLines.length : 0;
+    const outOfContract = results && results.zeroUsageLines
+      ? results.zeroUsageLines.filter(l => l.isOutOfContract).length : 0;
+    const savings = results ? (results.totalSavings || 0) : 0;
 
-    // Title
-    const title = document.createElement('h2');
-    title.textContent = 'Sheet View — Zero Usage Report';
-    title.className = 'sheet-report-title';
-    container.appendChild(title);
-
-    // Subtitle
-    const subtitle = document.createElement('p');
-    subtitle.className = 'sheet-report-subtitle';
-    subtitle.textContent = 'Replicates Google Sheet "Zero Usage Report" tab. ' +
-      'Filters: all three usage totals = 0. ' +
-      'Savings: SUMIFS MRC where out-of-contract or no contract date (simple sum, no cancel/suspend tree).';
-    container.appendChild(subtitle);
-
-    if (!results || !results.zeroUsageLines || results.zeroUsageLines.length === 0) {
-      const countEl = document.createElement('p');
-      countEl.className = 'sheet-report-count';
-      countEl.textContent = 'Zero usage lines: 0 | Potential savings: $0.00';
-      container.appendChild(countEl);
-
-      const empty = document.createElement('p');
-      empty.className = 'sheet-empty';
-      empty.textContent = 'No zero-usage lines found.';
-      container.appendChild(empty);
-      return;
-    }
-
-    // Savings summary at top
-    const savingsEl = document.createElement('div');
-    savingsEl.className = 'sheet-savings-summary';
-
-    const savingsLabel = document.createElement('span');
-    savingsLabel.className = 'sheet-savings-label';
-    savingsLabel.textContent = 'Potential Monthly Savings (Out-of-Contract Zero Usage): ';
-    savingsEl.appendChild(savingsLabel);
-
-    const savingsValue = document.createElement('span');
-    savingsValue.className = 'sheet-savings-value';
-    savingsValue.textContent = formatCurrency(results.totalSavings);
-    savingsEl.appendChild(savingsValue);
-
-    container.appendChild(savingsEl);
-
-    // Counts
-    const countEl = document.createElement('p');
-    countEl.className = 'sheet-report-count';
-    countEl.textContent =
-      'Zero usage lines: ' + results.zeroUsageCount +
-      ' | Out of contract: ' + results.zeroUsageLines.filter(function (l) { return l.isOutOfContract; }).length +
-      ' | In savings calc: ' + results.zeroUsageLines.filter(function (l) { return l.inSavingsCalc; }).length;
-    container.appendChild(countEl);
-
-    // Build and append table
-    const table = buildTable(ZERO_COLUMNS, results.zeroUsageLines, 'zero-usage-report');
-    container.appendChild(table);
+    renderGrid({
+      container,
+      columns: ZERO_COLUMNS,
+      data: (results && results.zeroUsageLines) ? results.zeroUsageLines.slice() : [],
+      tableKey: 'zero',
+      title: 'Sheet View — Zero Usage Report',
+      subtitle: `${count} zero-usage lines · ${outOfContract} out of contract`,
+      summary: `Cancelling out-of-contract lines could save → ${currencyFmt(savings)}/month`,
+      filename: 'Zero_Usage_Report.xlsx',
+      sheetName: 'Zero Usage',
+    });
   }
 
   /**
@@ -510,7 +489,8 @@
     calculate: calculate,
     renderSheetUsageReport: renderSheetUsageReport,
     renderSheetZeroUsageReport: renderSheetZeroUsageReport,
-    getResults: getResults
+    getResults: getResults,
+    getTables: () => _tables,
   };
 
 })();
