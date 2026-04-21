@@ -212,6 +212,13 @@
       const ratePlans = window.RatePlanAnalyzer.analyze(profiles);
       console.log('[AUDIT] Rate plans:', ratePlans.summary.uniquePlans, 'unique plans');
 
+      // Per-cycle snapshots + month-over-month deltas. Powers the latest-cycle
+      // dashboard and the Trend tab.
+      const trend = (window.CycleTrendAnalyzer && window.CycleTrendAnalyzer.analyze)
+        ? window.CycleTrendAnalyzer.analyze(profiles, meta)
+        : { snapshots: [], deltas: [], cycleCount: 0, byCycle: {} };
+      console.log('[AUDIT] Cycle trend:', trend.cycleCount, 'cycles');
+
       window.RatePlanLogger.logPlans(carrier, clientName, ratePlans.plans);
 
       // Push rate plans to n8n (non-blocking)
@@ -306,7 +313,12 @@
       const auditData = {
         carrier, clientName,
         billingPeriod: meta.billingCycles ? meta.billingCycles.join(' → ') : (meta.billingPeriods ? meta.billingPeriods.join(' → ') : ''),
-        profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, billData,
+        profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, billData, trend,
+        // Which cycle the dashboard is currently showing. Defaults to the latest
+        // cycle; user can flip via the cycle selector in the dashboard header.
+        activeCycle: trend && trend.snapshots && trend.snapshots.length > 0
+          ? trend.snapshots[trend.snapshots.length - 1].cycle
+          : null,
         sheetViewResults, discrepancyReport,
       };
       window.DTG.auditData = auditData;
@@ -319,6 +331,7 @@
       populateUsageTable(auditData);
       populateRatePlanTable(auditData);
       populatePlanComparison(auditData);
+      populateTrendTab(auditData);
       wireExportButtons(auditData);
 
       // ── Status Indicators ──
@@ -431,25 +444,63 @@
   function populateDashboardKPIs(data) {
     const ur = data.usageReport;
     const zu = data.zeroUsageSummary;
-    const inv = ur.inventory;
+    const s = ur.summary;
 
-    // Spend Overview — use MRC (plan cost only), not total charges
-    setKPI('kpi-total-spend', fmtMoney(ur.summary.totalMRC));
-    setKPI('kpi-avg-cost', fmtMoney(ur.summary.avgChargesPerLine));
-    // Surcharges from actual tax/fee fields
-    const totalTaxesFees = Object.values(data.profiles).reduce((s, p) => s + (p.taxes || p.latestTaxes || 0) + (p.fees || p.latestFees || 0), 0);
-    setKPI('kpi-surcharges', fmtMoney(totalTaxesFees));
-    setKPI('kpi-equipment', fmtMoney(ur.summary.totalEquipment));
+    // ── Pick which cycle the dashboard is showing ────────────────────────────
+    // Defaults to the latest cycle. The cycle selector (if rendered) lets the
+    // user flip to any earlier cycle to see that month's bill snapshot.
+    const snapshot = (data.trend && data.trend.byCycle && data.activeCycle)
+      ? data.trend.byCycle[data.activeCycle]
+      : (data.trend && data.trend.snapshots && data.trend.snapshots.length
+          ? data.trend.snapshots[data.trend.snapshots.length - 1]
+          : null);
 
-    // Inventory
-    setKPI('kpi-total-lines', inv.total);
-    setKPI('kpi-smartphones', inv.smartphones);
-    setKPI('kpi-tablets', inv.tablets + inv.hotspots);
-    setKPI('kpi-wearables', inv.watches);
+    // Bill totals: prefer the active cycle's snapshot (all bill rows, including
+    // account-level adjustments). Fall back to profile-summed values for
+    // carriers without a per-cycle breakdown (Verizon, T-Mobile, PDF-only mode).
+    const bill = snapshot ? snapshot.bill : null;
+    const totalSpend  = bill ? bill.total      : (s.billTotal      || s.totalMRC || 0);
+    const planTotal   = bill ? bill.plan       : (s.billPlan       || s.totalMRC || 0);
+    const feesTotal   = bill ? bill.surcharges : (s.billSurcharges || 0);
+    const taxesTotal  = bill ? bill.taxes      : (s.billTaxes      || 0);
+    const activityVal = bill ? bill.activity   : (s.billActivity   || 0);
+    const equipTotal  = s.billEquipment || s.totalEquipment || 0; // from inventory, not bill
 
-    // Upgrade eligibility
+    const lineCount = snapshot ? snapshot.lineCount : (s.totalLines || 0);
+    const inv       = snapshot ? snapshot.inventory : ur.inventory;
+
+    // Hero card
+    setKPI('kpi-total-spend', fmtMoney(totalSpend));
+    setKPI('kpi-avg-cost',    fmtMoney(lineCount ? totalSpend / lineCount : 0));
+    setKPI('kpi-line-count',  lineCount);
+
+    // Breakdown cards
+    setKPI('kpi-plan-charges', fmtMoney(planTotal));
+    setKPI('kpi-equipment',    fmtMoney(equipTotal));
+    setKPI('kpi-surcharges',   fmtMoney(feesTotal));
+    setKPI('kpi-taxes',        fmtMoney(taxesTotal));
+
+    // Activity is often net-negative (credits). Render red/green accordingly.
+    const activityEl = document.getElementById('kpi-activity');
+    if (activityEl) {
+      activityEl.textContent = (activityVal < 0 ? '-' : '') + fmtMoney(Math.abs(activityVal));
+      activityEl.style.color = activityVal < 0 ? 'var(--success)' : '';
+    }
+
+    // Inventory cards — scoped to lines active in the selected cycle
+    setKPI('kpi-total-lines',  inv.total);
+    setKPI('kpi-smartphones',  inv.smartphones);
+    setKPI('kpi-tablets',      inv.tablets + inv.hotspots);
+    setKPI('kpi-wearables',    inv.watches);
+
+    // Upgrade eligibility (inventory is a single snapshot so these don't vary
+    // per cycle — they reflect the current Upgrade Eligibility file)
     setKPI('kpi-upgrade-eligible', ur.summary.upgradeEligible || 0);
     setKPI('kpi-in-contract', ur.summary.inContract || 0);
+
+    // Populate the cycle selector + month label on the hero card
+    renderCycleSelector(data);
+    renderCycleLabel(snapshot);
 
     // Savings
     setKPI('kpi-total-savings', fmtMoney(zu.totalMonthlySavings));
@@ -458,6 +509,201 @@
     setKPI('kpi-plan-opts', data.ratePlans.summary.highZeroUsagePlans);
     setKPI('kpi-plan-savings', fmtMoney(0)); // placeholder for plan optimization
     setKPI('kpi-annual-savings', fmtMoney(zu.totalMonthlySavings * 12));
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // CYCLE SELECTOR + MONTH LABEL (dashboard header)
+  // ═══════════════════════════════════════════════════════
+  function renderCycleSelector(data) {
+    const host = document.getElementById('cycle-selector');
+    if (!host) return;
+    const snapshots = (data.trend && data.trend.snapshots) || [];
+    if (snapshots.length < 1) {
+      host.style.display = 'none';
+      return;
+    }
+    host.style.display = '';
+    // Only rebuild the dropdown when cycles change, so the user's in-flight
+    // selection isn't clobbered on tab switches.
+    const sig = snapshots.map(s => s.cycle).join('|');
+    if (host.dataset.cycleSig !== sig) {
+      host.innerHTML = '';
+      const label = document.createElement('label');
+      label.textContent = 'Billing cycle:';
+      label.style.cssText = 'font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;';
+      host.appendChild(label);
+      const sel = document.createElement('select');
+      sel.id = 'cycle-selector-input';
+      sel.style.cssText = 'margin-left:8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;';
+      for (const s of snapshots) {
+        const opt = document.createElement('option');
+        opt.value = s.cycle;
+        opt.textContent = s.monthLabel + ' (' + s.rangeLabel + ')';
+        sel.appendChild(opt);
+      }
+      sel.value = data.activeCycle || snapshots[snapshots.length - 1].cycle;
+      sel.addEventListener('change', (e) => {
+        data.activeCycle = e.target.value;
+        // Re-populate KPIs for the newly selected cycle.
+        populateDashboardKPIs(data);
+      });
+      host.appendChild(sel);
+      host.dataset.cycleSig = sig;
+    } else {
+      const sel = document.getElementById('cycle-selector-input');
+      if (sel) sel.value = data.activeCycle || snapshots[snapshots.length - 1].cycle;
+    }
+  }
+
+  function renderCycleLabel(snapshot) {
+    const el = document.getElementById('kpi-total-spend-sub');
+    if (!el) return;
+    if (!snapshot) { el.textContent = 'Current billing period'; return; }
+    el.textContent = snapshot.monthLabel + ' · ' + snapshot.rangeLabel;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // TREND TAB — month-over-month rollups and line-change lists
+  // ═══════════════════════════════════════════════════════
+  function populateTrendTab(data) {
+    const host = document.getElementById('tab-trend-content');
+    if (!host) return;
+    const trend = data.trend;
+    if (!trend || !trend.snapshots || trend.snapshots.length === 0) {
+      host.innerHTML = '<p style="color:var(--text-secondary);padding:24px;">No cycle data available.</p>';
+      return;
+    }
+    if (trend.snapshots.length < 2) {
+      host.innerHTML = '<p style="color:var(--text-secondary);padding:24px;">Only one billing cycle in the uploaded data — trend comparisons need at least two cycles. Re-export with the last 3 months from Premier and re-run the audit.</p>';
+      return;
+    }
+
+    const snaps = trend.snapshots;
+    const deltas = trend.deltas;
+
+    let html = '';
+
+    // ── Per-cycle summary table ────────────────────────────────────────────
+    html += `<div style="margin-bottom:16px;overflow-x:auto;">
+      <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#1a3a5c;color:#fff;text-transform:uppercase;font-size:11px;letter-spacing:0.03em;">
+          <th style="padding:10px 14px;text-align:left;">Cycle</th>
+          <th style="padding:10px 14px;text-align:right;">Bill Total</th>
+          <th style="padding:10px 14px;text-align:right;">Plan</th>
+          <th style="padding:10px 14px;text-align:right;">Surcharges</th>
+          <th style="padding:10px 14px;text-align:right;">Taxes</th>
+          <th style="padding:10px 14px;text-align:right;">Activity</th>
+          <th style="padding:10px 14px;text-align:right;">Lines</th>
+          <th style="padding:10px 14px;text-align:right;">Bill Δ vs prior</th>
+          <th style="padding:10px 14px;text-align:right;">Lines Δ</th>
+        </tr></thead><tbody>`;
+    for (let i = 0; i < snaps.length; i++) {
+      const s = snaps[i];
+      const d = deltas[i];
+      const billDelta = d && !d.isFirst ? d.billDelta : null;
+      const lineDelta = d && !d.isFirst ? d.lineCountDelta : null;
+      const billDeltaHtml = billDelta == null ? '—'
+        : (billDelta >= 0
+            ? `<span style="color:#ef4444;">+${fmtMoney(billDelta)}</span>`
+            : `<span style="color:#22c55e;">-${fmtMoney(Math.abs(billDelta))}</span>`);
+      const lineDeltaHtml = lineDelta == null ? '—'
+        : (lineDelta > 0 ? `<span style="color:#22c55e;">+${lineDelta}</span>`
+           : lineDelta < 0 ? `<span style="color:#ef4444;">${lineDelta}</span>`
+           : '0');
+      html += `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 14px;"><strong>${s.monthLabel}</strong><br><span style="font-size:11px;color:var(--text-secondary);">${s.rangeLabel}</span></td>
+        <td style="padding:10px 14px;text-align:right;font-weight:600;">${fmtMoney(s.bill.total)}</td>
+        <td style="padding:10px 14px;text-align:right;">${fmtMoney(s.bill.plan)}</td>
+        <td style="padding:10px 14px;text-align:right;">${fmtMoney(s.bill.surcharges)}</td>
+        <td style="padding:10px 14px;text-align:right;">${fmtMoney(s.bill.taxes)}</td>
+        <td style="padding:10px 14px;text-align:right;color:${s.bill.activity < 0 ? '#22c55e' : ''};">${s.bill.activity < 0 ? '-' : ''}${fmtMoney(Math.abs(s.bill.activity))}</td>
+        <td style="padding:10px 14px;text-align:right;">${s.lineCount}</td>
+        <td style="padding:10px 14px;text-align:right;">${billDeltaHtml}</td>
+        <td style="padding:10px 14px;text-align:right;">${lineDeltaHtml}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+
+    // ── Bill-trend chart ───────────────────────────────────────────────────
+    html += `<div style="margin-bottom:16px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Bill trend</div>
+      <canvas id="chart-trend-bill" style="max-height:200px;"></canvas>
+    </div>`;
+
+    // ── Per-cycle line-change details ──────────────────────────────────────
+    for (const d of deltas) {
+      if (d.isFirst) continue;
+      html += renderCycleDeltaBlock(d);
+    }
+
+    host.innerHTML = html;
+
+    // Draw the chart after the canvas is in the DOM
+    drawTrendChart(snaps);
+  }
+
+  function renderCycleDeltaBlock(d) {
+    const section = (title, items, renderItem, emptyMsg, color) => {
+      if (!items || items.length === 0) {
+        return `<details style="margin:6px 0;"><summary style="cursor:pointer;padding:6px 10px;color:var(--text-secondary);font-size:12px;">${title}: <strong>0</strong></summary><p style="margin:8px 14px;color:var(--text-muted);font-size:12px;">${emptyMsg || 'None this cycle.'}</p></details>`;
+      }
+      const rows = items.map(renderItem).join('');
+      return `<details style="margin:6px 0;" open><summary style="cursor:pointer;padding:6px 10px;color:${color || 'var(--text)'};font-weight:600;font-size:12px;">${title}: <strong>${items.length}</strong></summary>
+        <div style="margin:6px 0;overflow-x:auto;"><table style="width:100%;font-size:12px;border-collapse:collapse;">
+          ${rows}
+        </table></div></details>`;
+    };
+
+    const addedRows    = section('🟢 Added',       d.added,       a => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${a.wireless}</td><td style="padding:4px 10px;">${a.userName || ''}</td><td style="padding:4px 10px;color:var(--text-secondary);">${a.ratePlan || ''}</td><td style="padding:4px 10px;color:var(--text-muted);">${a.activationDate ? 'activated ' + a.activationDate : ''}</td></tr>`, null, '#22c55e');
+    const cxlRows      = section('🔴 Cancelled',   d.cancelled,   c => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${c.wireless}</td><td style="padding:4px 10px;">${c.userName || ''}</td><td style="padding:4px 10px;color:var(--text-secondary);">${c.deviceType || ''}</td><td style="padding:4px 10px;color:var(--text-muted);">${c.reason}</td></tr>`, null, '#ef4444');
+    const suspRows     = section('🟡 Suspended',   d.suspended,   s => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${s.wireless}</td><td style="padding:4px 10px;">${s.userName || ''}</td><td style="padding:4px 10px;color:var(--text-secondary);">${s.deviceType || ''}</td></tr>`, null, '#f59e0b');
+    const upgradeRows  = section('📱 Device upgrades', d.upgrades, u => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${u.wireless}</td><td style="padding:4px 10px;">${u.userName || ''}</td><td style="padding:4px 10px;color:var(--text-secondary);">${u.deviceMake} ${u.deviceModel}</td><td style="padding:4px 10px;color:var(--text-muted);">upgraded ${u.lastUpgradeDate}</td></tr>`);
+    const planRows     = section('🔄 Rate-plan changes', d.planChanges, p => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${p.wireless}</td><td style="padding:4px 10px;">${p.userName || ''}</td><td style="padding:4px 10px;font-size:11px;color:var(--text-secondary);">${p.fromPlan} → ${p.toPlan}</td></tr>`);
+    const portRows     = section('🔁 Number changes (port-in)', d.portIns, p => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${p.oldWireless} → ${p.newWireless}</td><td style="padding:4px 10px;">${p.userName || ''}</td><td style="padding:4px 10px;color:var(--text-muted);">${p.reason}</td></tr>`);
+    const anomalyRows  = section('⚠ Charge anomalies', d.anomalies, a => `<tr><td style="padding:4px 10px;font-variant-numeric:tabular-nums;">${a.wireless}</td><td style="padding:4px 10px;">${a.userName || ''}</td><td style="padding:4px 10px;text-align:right;">${fmtMoney(a.prevTotal)} → ${fmtMoney(a.currTotal)}</td><td style="padding:4px 10px;color:${a.diff >= 0 ? '#ef4444' : '#22c55e'};">${a.diff >= 0 ? '+' : ''}${fmtMoney(a.diff)}</td></tr>`, null, '#f59e0b');
+
+    // Rate-plan migration rollup
+    let migrationHtml = '';
+    if (d.planMigrations && d.planMigrations.length > 0) {
+      migrationHtml = `<details style="margin:6px 0;" open><summary style="cursor:pointer;padding:6px 10px;color:var(--text);font-weight:600;font-size:12px;">📊 Rate-plan migration rollup</summary>
+        <table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:6px;">
+        ${d.planMigrations.map(m => `<tr><td style="padding:4px 10px;">${m.fromPlan} → ${m.toPlan}</td><td style="padding:4px 10px;text-align:right;"><strong>${m.count}</strong> line${m.count === 1 ? '' : 's'}</td></tr>`).join('')}
+        </table></details>`;
+    }
+
+    return `<div style="margin-bottom:20px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:8px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">${d.monthLabel} vs ${d.prevMonthLabel}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">Bill Δ ${d.billDelta >= 0 ? '+' : '-'}${fmtMoney(Math.abs(d.billDelta))} · Lines Δ ${d.lineCountDelta >= 0 ? '+' : ''}${d.lineCountDelta}</div>
+      ${addedRows}${cxlRows}${suspRows}${upgradeRows}${planRows}${portRows}${anomalyRows}${migrationHtml}
+    </div>`;
+  }
+
+  let trendChart = null;
+  function drawTrendChart(snaps) {
+    const ctx = document.getElementById('chart-trend-bill');
+    if (!ctx || typeof Chart === 'undefined') return;
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: snaps.map(s => s.monthLabel),
+        datasets: [{
+          label: 'Bill Total ($)',
+          data: snaps.map(s => s.bill.total),
+          backgroundColor: '#f7931e',
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#a1a1aa' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { ticks: { color: '#a1a1aa', callback: (v) => '$' + v.toLocaleString() }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        },
+      },
+    });
   }
 
   // ═══════════════════════════════════════════════════════
