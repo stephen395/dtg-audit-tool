@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Tell browsers to never cache this HTML. GitHub Pages sets Cache-Control:
+         max-age=600 which made bookmarks to this page stick on a 10-minute-old
+         copy, so users kept missing fresh deploys. These meta tags override
+         that so every visit re-fetches index.html (and the ?v= suffixes on the
+         script tags handle cache invalidation of the JS modules). -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>DTG Wireless Audit Tool</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
