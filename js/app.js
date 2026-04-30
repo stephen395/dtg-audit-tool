@@ -509,6 +509,489 @@
     setKPI('kpi-plan-opts', data.ratePlans.summary.highZeroUsagePlans);
     setKPI('kpi-plan-savings', fmtMoney(0)); // placeholder for plan optimization
     setKPI('kpi-annual-savings', fmtMoney(zu.totalMonthlySavings * 12));
+
+    // ── REDESIGNED DASHBOARD: drive the new visual bits (Apr 2026) ────────
+    // Breakdown bars, fleet stacked bar, in-contract donut, hero callout,
+    // delta vs prior cycle, ranked recommendations.
+    populateDashboardExtras(data, {
+      totalSpend, lineCount, inv,
+      planTotal, equipTotal, feesTotal, taxesTotal, activityVal,
+      snapshot,
+    });
+
+    // Mark body so the empty-state CSS hides and the dashboard grid shows.
+    document.body.classList.add('has-audit-data');
+    document.body.classList.add('tabs-redesigned');
+
+    // Populate redesigned summary bands on every other tab.
+    populateTabBands(data, { totalSpend, lineCount, inv, snapshot });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // TAB REDESIGN — populate summary bands on Zero Usage,
+  // Usage Report, Rate Plans, Plan Comparison, Discrepancies,
+  // and Exports tabs. v=20260430-tabs-redesign
+  // ═══════════════════════════════════════════════════════
+  function populateTabBands(data, ctx) {
+    const ur = data.usageReport;
+    const zu = data.zeroUsageSummary;
+    const rp = data.ratePlans && data.ratePlans.summary ? data.ratePlans.summary : {};
+    const pc = data.planComparison || {};
+
+    // ---- ZERO USAGE BAND ----
+    try {
+      const zuLines = (zu.lines || []);
+      const total = zu.totalZeroUsage || zuLines.length || 0;
+      const wastedMRC = zu.cancelSavings + zu.suspendSavings || zu.totalMonthlySavings || 0;
+      const annual = (zu.totalMonthlySavings || wastedMRC) * 12;
+
+      setText('zu-band-count', total);
+      setText('zu-band-mrc', fmtMoney(wastedMRC) + '/mo');
+      setText('zu-band-savings', fmtMoney(annual));
+
+      // severity buckets
+      let high = 0, med = 0, low = 0, etfRisk = 0;
+      zuLines.forEach(l => {
+        const oc = (l.action || '').toLowerCase().includes('suspend') ||
+                   (l.action || '').toLowerCase().includes('cancel') ||
+                   l.contractStatus === 'out-of-contract' ||
+                   l.inContract === false;
+        if (oc) high++;
+        else {
+          // contract end window
+          const days = l.daysToContractEnd != null ? l.daysToContractEnd : 9999;
+          if (days < 90) med++; else low++;
+          etfRisk += (l.etf || 0);
+        }
+      });
+      const max = Math.max(high, med, low, 1);
+      setText('zu-dist-high', high);
+      setText('zu-dist-med', med);
+      setText('zu-dist-low', low);
+      setText('zu-dist-etf', fmtMoney(etfRisk));
+      setBar('zu-bar-high', (high / max) * 100);
+      setBar('zu-bar-med', (med / max) * 100);
+      setBar('zu-bar-low', (low / max) * 100);
+      setBar('zu-bar-etf', etfRisk ? 60 : 0);
+
+      // callout
+      const co = document.getElementById('zu-callout');
+      if (co) {
+        if (total > 0) {
+          setText('zu-callout-headline',
+            `${high} line${high !== 1 ? 's' : ''} ready to suspend immediately.`);
+          setText('zu-callout-detail',
+            `Recoverable: ${fmtMoney(annual)}/yr if all out-of-contract zero-usage lines are suspended.`);
+        } else if (total === 0) {
+          co.classList.add('success');
+          setText('zu-callout-headline', 'No zero-usage lines this cycle.');
+          setText('zu-callout-detail', 'Every line had measurable activity. Nothing to suspend.');
+        }
+      }
+    } catch (e) { console.warn('zu band', e); }
+
+    // ---- USAGE REPORT BAND ----
+    try {
+      const lines = (ur.lines || []);
+      const total = ur.summary.totalLines || lines.length || 0;
+      const totalMB = lines.reduce((s, l) => s + (l.dataMB || l.data || 0), 0);
+      const totalGB = (totalMB / 1024).toFixed(1);
+      const overage = lines.filter(l => (l.flags || []).includes('overage') || l.overage).length;
+      const zero = ur.summary.zeroUsageCount || zu.totalZeroUsage || 0;
+
+      setText('ur-band-total', total);
+      setText('ur-band-data', totalGB);
+      setText('ur-band-overage', overage);
+      setText('ur-band-zero', zero);
+
+      // percentiles
+      const sorted = lines.map(l => l.dataMB || l.data || 0).sort((a, b) => a - b);
+      const pct = p => {
+        if (!sorted.length) return 0;
+        const idx = Math.floor(sorted.length * p);
+        return sorted[Math.min(idx, sorted.length - 1)];
+      };
+      const fmtMB = v => v < 1024 ? `${Math.round(v)} MB` : `${(v / 1024).toFixed(1)} GB`;
+      setText('ur-p50', fmtMB(pct(0.50)));
+      setText('ur-p75', fmtMB(pct(0.75)));
+      setText('ur-p90', fmtMB(pct(0.90)));
+      setText('ur-p99', fmtMB(pct(0.99)));
+      setText('ur-mean', fmtMB(sorted.length ? sorted.reduce((a, b) => a + b, 0) / sorted.length : 0));
+
+      // histogram (real data)
+      const hist = document.getElementById('ur-hist');
+      if (hist && sorted.length) {
+        const bins = 15;
+        const max = sorted[sorted.length - 1] || 1;
+        const buckets = new Array(bins).fill(0);
+        sorted.forEach(v => {
+          const i = Math.min(bins - 1, Math.floor((v / max) * bins));
+          buckets[i]++;
+        });
+        const maxBucket = Math.max(...buckets, 1);
+        hist.innerHTML = buckets.map((b, i) => {
+          const h = Math.max(2, (b / maxBucket) * 100);
+          const cls = i === 0 ? 'col zero' : 'col';
+          return `<div class="${cls}" style="height:${h}%" title="${b} lines"></div>`;
+        }).join('');
+      }
+    } catch (e) { console.warn('ur band', e); }
+
+    // ---- RATE PLANS BAND ----
+    try {
+      const plans = data.ratePlans && data.ratePlans.plans ? data.ratePlans.plans : [];
+      const distinct = plans.length;
+      const totalLines = plans.reduce((s, p) => s + (p.count || 0), 0);
+      const totalCost = plans.reduce((s, p) => s + (p.totalCost || 0), 0);
+      const avg = totalLines ? totalCost / totalLines : 0;
+      const matched = plans.filter(p => p.matched).length;
+      const matchPct = distinct ? Math.round((matched / distinct) * 100) : 0;
+
+      setText('rp-band-plans', distinct);
+      setText('rp-band-avg', fmtMoney(avg));
+      setText('rp-band-match', matchPct + '%');
+
+      // composition stack (top 5 + other)
+      const sorted = plans.slice().sort((a, b) => (b.count || 0) - (a.count || 0));
+      const top = sorted.slice(0, 4);
+      const otherCount = sorted.slice(4).reduce((s, p) => s + (p.count || 0), 0);
+      const palette = ['#6366f1', '#22c55e', '#f7931e', '#ef4444', '#a78bfa'];
+      const segments = top.map((p, i) => ({
+        name: p.plan || p.planName || 'Plan',
+        count: p.count || 0,
+        color: palette[i],
+      }));
+      if (otherCount) segments.push({ name: 'Other', count: otherCount, color: palette[4] });
+
+      const stack = document.getElementById('rp-stack');
+      const legend = document.getElementById('rp-legend');
+      if (stack && totalLines) {
+        stack.innerHTML = segments.map(s => {
+          const w = (s.count / totalLines) * 100;
+          return `<div style="background:${s.color};width:${w}%" title="${s.name}: ${s.count} lines">${w >= 8 ? Math.round(w) + '%' : ''}</div>`;
+        }).join('');
+      }
+      if (legend && totalLines) {
+        legend.innerHTML = segments.map(s =>
+          `<div class="rp-legend-item"><span class="sw" style="background:${s.color}"></span>${s.name} <span class="ct">(${s.count})</span></div>`
+        ).join('');
+      }
+
+      // insight
+      if (distinct >= 5) {
+        setText('rp-insight-headline', `${distinct} distinct plans across the fleet.`);
+        setText('rp-insight-detail', 'Consolidating to 2-3 plans typically cuts admin overhead and unlocks volume pricing tiers.');
+      } else if (distinct > 0) {
+        setText('rp-insight-headline', `Plan portfolio is consolidated.`);
+        setText('rp-insight-detail', `${distinct} plan${distinct !== 1 ? 's' : ''} in use — good baseline. Focus on right-sizing within each tier.`);
+      }
+    } catch (e) { console.warn('rp band', e); }
+
+    // ---- PLAN COMPARISON BAND ----
+    try {
+      const monthly = pc.totalMonthlySavings || 0;
+      const annual = monthly * 12;
+      const curMRC = pc.currentTotal || 0;
+      const propMRC = pc.proposedTotal || 0;
+      const totalLines = (pc.lines || []).length;
+      const proposedLines = (pc.lines || []).filter(l => l.proposedPlan).length;
+
+      setText('pc-big-annual', fmtMoney(annual));
+      setText('pc-big-monthly', fmtMoney(monthly));
+      setText('pc-big-lines', proposedLines);
+      setText('pc-cur-mrc', fmtMoney(curMRC) + '/mo');
+      setText('pc-prop-mrc', fmtMoney(propMRC) + '/mo');
+      setText('pc-coverage-pct', totalLines ? Math.round((proposedLines / totalLines) * 100) : 0);
+      setText('pc-coverage-lines', `${proposedLines} of ${totalLines}`);
+      const cut = curMRC ? ((curMRC - propMRC) / curMRC) * 100 : 0;
+      setText('pc-pct-cut', cut > 0 ? `${cut.toFixed(1)}% reduction` : 'No reduction yet');
+
+      // monthly/annual toggle
+      document.querySelectorAll('[data-pc-view]').forEach(b => {
+        b.onclick = () => {
+          document.querySelectorAll('[data-pc-view]').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+          const isAnnual = b.dataset.pcView === 'annual';
+          setText('pc-big-annual', fmtMoney(isAnnual ? annual : monthly));
+          const eyebrow = b.closest('.pc-savings').querySelector('.pc-savings-cell .eyebrow');
+          if (eyebrow) eyebrow.textContent = isAnnual ? 'Annual Savings if Adopted' : 'Monthly Savings if Adopted';
+        };
+      });
+    } catch (e) { console.warn('pc band', e); }
+
+    // ---- DISCREPANCIES BAND ----
+    try {
+      const ds = data.discrepancies || [];
+      const open = ds.filter(d => !d.resolved && !d.inReview).length;
+      const review = ds.filter(d => d.inReview).length;
+      const resolved = ds.filter(d => d.resolved).length;
+      setText('disc-band-open', open);
+      setText('disc-band-review', review);
+      setText('disc-band-resolved', resolved);
+    } catch (e) { console.warn('disc band', e); }
+
+    // ---- EXPORTS BAND ----
+    try {
+      const dt = new Date();
+      const dateStr = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      setText('exp-run-date', dateStr);
+      setText('exp-run-client', data.clientName || 'Audit complete');
+      setText('exp-lines', ctx.lineCount || ur.summary.totalLines || 0);
+      const carriers = data.carriers ? data.carriers.length : 1;
+      setText('exp-carriers', `${carriers} carrier${carriers !== 1 ? 's' : ''}`);
+      const findings = (zu.totalZeroUsage || 0) + ((pc.lines || []).filter(l => l.proposedPlan).length);
+      setText('exp-findings', findings);
+      const totalSavings = ((zu.totalMonthlySavings || 0) + (pc.totalMonthlySavings || 0)) * 12;
+      setText('exp-savings', fmtMoney(totalSavings));
+    } catch (e) { console.warn('exp band', e); }
+  }
+
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+  function setBar(id, pct) {
+    const el = document.getElementById(id);
+    if (el) el.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // DASHBOARD REDESIGN — populate the new visual elements.
+  // Legacy IDs are still set above; this fills in:
+  //   - hero delta vs prior cycle
+  //   - breakdown percent bars + sublabels
+  //   - zero-usage callout under the hero
+  //   - fleet stacked bar + segment widths
+  //   - in-contract donut (CSS conic-gradient)
+  //   - recommendation list (ranked by monthly savings)
+  // ═══════════════════════════════════════════════════════
+  function populateDashboardExtras(data, ctx) {
+    const { totalSpend, lineCount, inv, planTotal, equipTotal, feesTotal, taxesTotal, activityVal, snapshot } = ctx;
+    const ur = data.usageReport;
+    const zu = data.zeroUsageSummary;
+
+    // ── Hero delta vs prior cycle ─────────────────────────────────────────
+    const deltaEl = document.getElementById('dash-hero-delta');
+    if (deltaEl) {
+      const snaps = (data.trend && data.trend.snapshots) || [];
+      const idx = snapshot ? snaps.findIndex(s => s.cycle === snapshot.cycle) : -1;
+      const prev = idx > 0 ? snaps[idx - 1] : null;
+      if (prev && prev.bill && prev.bill.total) {
+        const delta = totalSpend - prev.bill.total;
+        const pct = (delta / prev.bill.total) * 100;
+        const sign = delta > 0 ? '↑' : (delta < 0 ? '↓' : '→');
+        deltaEl.textContent = `${sign} ${fmtMoney(Math.abs(delta))} (${Math.abs(pct).toFixed(1)}%)`;
+        deltaEl.className = 'dash-delta ' + (delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat');
+      } else {
+        deltaEl.textContent = '— first cycle';
+        deltaEl.className = 'dash-delta flat';
+      }
+    }
+
+    // ── Breakdown percent bars ────────────────────────────────────────────
+    // Activity (credits) treated as absolute for proportion math, otherwise
+    // a negative slice would distort the bar widths.
+    const breakdownTotal = Math.max(
+      planTotal + equipTotal + feesTotal + taxesTotal + Math.abs(activityVal || 0),
+      1
+    );
+    const setBar = (key, val) => {
+      const bar = document.querySelector(`.dash-mini-bar > [data-bar="${key}"]`);
+      const sub = document.querySelector(`.dash-mini-sub[data-pct="${key}"]`);
+      const pct = (Math.abs(val) / breakdownTotal) * 100;
+      if (bar) bar.style.width = pct.toFixed(1) + '%';
+      if (sub) sub.textContent = pct.toFixed(0) + '% of bill';
+    };
+    setBar('plan',  planTotal);
+    setBar('equip', equipTotal);
+    setBar('surch', feesTotal);
+    setBar('tax',   taxesTotal);
+    setBar('act',   activityVal || 0);
+
+    // ── Zero-usage callout (under hero) ───────────────────────────────────
+    const calloutEl = document.getElementById('dash-callout');
+    const headlineEl = document.getElementById('dash-callout-headline');
+    const detailEl = document.getElementById('dash-callout-detail');
+    if (calloutEl && headlineEl && detailEl) {
+      const isTangoe = data.meta && data.meta.source === 'tangoe';
+      if (isTangoe) {
+        // Tangoe carries no usage metrics — different message, different deep link.
+        headlineEl.textContent = `${ur.summary.upgradeEligible || 0} phones eligible for upgrade.`;
+        detailEl.textContent = ' Tangoe exports lack usage data; review contract status instead.';
+        calloutEl.style.display = (ur.summary.upgradeEligible || 0) > 0 ? '' : 'none';
+      } else if (zu.cancelSavings > 0) {
+        headlineEl.textContent = `${fmtMoney(zu.cancelSavings)}/mo leaking on idle lines.`;
+        detailEl.textContent = ` ${zu.outOfContract || 0} zero-usage lines are out of contract — cancellable now.`;
+        calloutEl.style.display = '';
+      } else if (zu.totalZeroUsage > 0) {
+        headlineEl.textContent = `${zu.totalZeroUsage} zero-usage lines under contract.`;
+        detailEl.textContent = ' Suspending or downgrading these would reduce next cycle\'s bill.';
+        calloutEl.style.display = '';
+      } else {
+        calloutEl.style.display = 'none';
+      }
+    }
+
+    // ── Fleet stacked bar + segment widths ────────────────────────────────
+    const phoneCount = inv.smartphones || 0;
+    const tabCount   = (inv.tablets || 0) + (inv.hotspots || 0);
+    const wearCount  = inv.watches || 0;
+    const fleetTotal = Math.max(phoneCount + tabCount + wearCount, 1);
+    const setSeg = (seg, n) => {
+      const el = document.querySelector(`.dash-stack-bar > [data-seg="${seg}"]`);
+      if (!el) return;
+      const pct = (n / fleetTotal) * 100;
+      el.style.width = pct.toFixed(1) + '%';
+      const valEl = el.querySelector('.seg-val');
+      if (valEl) valEl.textContent = n > 0 ? `${n} · ${pct.toFixed(0)}%` : '';
+      el.style.display = n > 0 ? '' : 'none';
+    };
+    setSeg('phone', phoneCount);
+    setSeg('tab',   tabCount);
+    setSeg('wear',  wearCount);
+
+    // ── In-contract donut (CSS conic-gradient) ────────────────────────────
+    const donut = document.getElementById('dash-donut');
+    const donutPctEl = document.getElementById('dash-donut-pct');
+    const totalContractable = (ur.summary.upgradeEligible || 0) + (ur.summary.inContract || 0);
+    const inContractPct = totalContractable > 0
+      ? ((ur.summary.inContract || 0) / totalContractable) * 100
+      : 0;
+    if (donut) {
+      donut.style.background =
+        `conic-gradient(#f7931e 0 ${inContractPct.toFixed(1)}%, rgba(255,255,255,0.08) ${inContractPct.toFixed(1)}% 100%)`;
+    }
+    if (donutPctEl) donutPctEl.textContent = inContractPct.toFixed(0) + '%';
+
+    // ── Ranked recommendations ────────────────────────────────────────────
+    renderRecommendations(data);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // RECOMMENDATIONS — top-N actions ranked by monthly savings.
+  // ═══════════════════════════════════════════════════════
+  function renderRecommendations(data) {
+    const list = document.getElementById('dash-rec-list');
+    const totalEl = document.getElementById('dash-rec-total');
+    const doneEl = document.getElementById('dash-rec-done');
+    if (!list) return;
+
+    const zu = data.zeroUsageSummary;
+    const ur = data.usageReport;
+    const isTangoe = data.meta && data.meta.source === 'tangoe';
+
+    // Build the candidate set, then sort by monthly $ saved and keep top 5.
+    const recs = [];
+
+    if (!isTangoe && zu.cancelSavings > 0) {
+      recs.push({
+        title: `Cancel ${zu.outOfContract || 0} idle out-of-contract lines`,
+        savings: zu.cancelSavings,
+        meta: 'Zero usage + no ETF — cancellable on next bill cycle.',
+        deepLink: 'zero-usage',
+        deepLinkLabel: 'Open Zero Usage tab',
+      });
+    }
+    if (!isTangoe && zu.suspendSavings > 0) {
+      recs.push({
+        title: `Suspend ${zu.suspendCount || 0} idle in-contract lines`,
+        savings: zu.suspendSavings,
+        meta: 'Carrier seasonal-suspend keeps the line dormant at reduced MRC.',
+        deepLink: 'zero-usage',
+        deepLinkLabel: 'Open Zero Usage tab',
+      });
+    }
+    const planOpts = (data.ratePlans && data.ratePlans.summary && data.ratePlans.summary.highZeroUsagePlans) || 0;
+    if (planOpts > 0) {
+      recs.push({
+        title: `Re-rate ${planOpts} plans with low utilization`,
+        savings: 0,
+        meta: 'Quote a smaller plan tier — savings depend on carrier price book.',
+        deepLink: 'rate-plans',
+        deepLinkLabel: 'Open Rate Plans tab',
+      });
+    }
+    const upgrade = ur.summary.upgradeEligible || 0;
+    if (upgrade > 0) {
+      recs.push({
+        title: `Renegotiate ${upgrade} upgrade-eligible contracts`,
+        savings: 0,
+        meta: 'Out-of-contract phones — leverage for plan or device incentives.',
+        deepLink: 'usage-report',
+        deepLinkLabel: 'Open Usage Report tab',
+      });
+    }
+    if (data.discrepancyReport && data.discrepancyReport.discrepancyCount > 0) {
+      recs.push({
+        title: `Resolve ${data.discrepancyReport.discrepancyCount} discrepancies`,
+        savings: 0,
+        meta: 'Mismatches between carrier file and audit ledger — review before client call.',
+        deepLink: 'discrepancies',
+        deepLinkLabel: 'Open Discrepancies tab',
+      });
+    }
+    if (data.planComparison && data.planComparison.totalSavings > 0) {
+      recs.push({
+        title: 'Switch carriers based on plan comparison',
+        savings: data.planComparison.totalSavings,
+        meta: 'Modeled savings vs current carrier — verify with quote.',
+        deepLink: 'plan-comparison',
+        deepLinkLabel: 'Open Plan Comparison tab',
+      });
+    }
+
+    // Sort: highest savings first; zero-savings recs follow in their natural order.
+    recs.sort((a, b) => (b.savings || 0) - (a.savings || 0));
+    const top = recs.slice(0, 5);
+
+    if (top.length === 0) {
+      list.innerHTML = '<div style="padding:32px 0;text-align:center;color:var(--text-secondary);font-size:12.5px;">No recommendations — this audit is clean.</div>';
+      if (totalEl) totalEl.textContent = '0';
+      if (doneEl)  doneEl.textContent  = '0';
+      return;
+    }
+
+    list.innerHTML = top.map((r, i) => {
+      const savingsLabel = r.savings > 0 ? `${fmtMoney(r.savings)} / mo` : 'Quote required';
+      return `
+        <div class="dash-rec-item" data-rec-idx="${i}">
+          <div class="dash-rec-checkbox" data-rec-check="${i}" role="checkbox" aria-checked="false" tabindex="0"></div>
+          <div class="dash-rec-rank">${i + 1}.</div>
+          <div class="dash-rec-body">
+            <div class="dash-rec-title-row">
+              <span class="dash-rec-title-text">${escapeHtml(r.title)}</span>
+              <span class="dash-rec-savings">${savingsLabel}</span>
+            </div>
+            <div class="dash-rec-meta">
+              ${escapeHtml(r.meta)}
+              ${r.deepLink ? ` <a data-deep-link="${r.deepLink}">${escapeHtml(r.deepLinkLabel)} →</a>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (totalEl) totalEl.textContent = String(top.length);
+    if (doneEl)  doneEl.textContent  = '0';
+
+    // Wire checkboxes (purely visual — strikes through and decrements progress).
+    list.querySelectorAll('.dash-rec-checkbox').forEach((box) => {
+      box.addEventListener('click', () => {
+        const item = box.closest('.dash-rec-item');
+        const wasChecked = box.classList.toggle('checked');
+        box.setAttribute('aria-checked', wasChecked ? 'true' : 'false');
+        if (item) item.classList.toggle('checked', wasChecked);
+        const checked = list.querySelectorAll('.dash-rec-checkbox.checked').length;
+        if (doneEl) doneEl.textContent = String(checked);
+      });
+    });
+  }
+
+  // Tiny helper — avoids dragging in a full HTML escaper.
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
   }
 
   // ═══════════════════════════════════════════════════════
@@ -799,7 +1282,96 @@
         }
       });
     }
+
+    // ── Hero sparkline (new dashboard) ──────────────────────────────────
+    // Uses cycle-trend snapshots so the auditor sees spend trajectory at a glance.
+    drawDashSparkline(data);
   }
+
+  // ═══════════════════════════════════════════════════════
+  // HERO SPARKLINE — small spend-over-cycles strip on the dashboard hero.
+  // Drawn manually (no Chart.js) so it stays crisp at 240×70 with no chrome.
+  // ═══════════════════════════════════════════════════════
+  function drawDashSparkline(data) {
+    const cv = document.getElementById('dash-spark');
+    if (!cv) return;
+    const snaps = (data.trend && data.trend.snapshots) || [];
+    const ctx2 = cv.getContext('2d');
+    if (!ctx2) return;
+
+    // Resize for HiDPI
+    const cssW = cv.clientWidth || 240;
+    const cssH = cv.clientHeight || 70;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width  = Math.round(cssW * dpr);
+    cv.height = Math.round(cssH * dpr);
+    ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2.clearRect(0, 0, cssW, cssH);
+
+    if (snaps.length < 2) {
+      ctx2.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx2.font = '10px "JetBrains Mono", "SF Mono", Menlo, monospace';
+      ctx2.textAlign = 'right';
+      ctx2.textBaseline = 'middle';
+      ctx2.fillText('Need 2+ cycles for trend', cssW - 4, cssH / 2);
+      return;
+    }
+
+    const vals = snaps.map(s => s.bill && s.bill.total ? s.bill.total : 0);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const pad = 8;
+    const range = (max - min) || 1;
+    const xStep = (cssW - pad * 2) / (vals.length - 1);
+    const points = vals.map((v, i) => ({
+      x: pad + i * xStep,
+      y: cssH - pad - ((v - min) / range) * (cssH - pad * 2),
+    }));
+
+    // Area fill (subtle)
+    const grad = ctx2.createLinearGradient(0, 0, 0, cssH);
+    grad.addColorStop(0, 'rgba(247,147,30,0.30)');
+    grad.addColorStop(1, 'rgba(247,147,30,0.00)');
+    ctx2.fillStyle = grad;
+    ctx2.beginPath();
+    ctx2.moveTo(points[0].x, cssH - pad);
+    points.forEach(p => ctx2.lineTo(p.x, p.y));
+    ctx2.lineTo(points[points.length - 1].x, cssH - pad);
+    ctx2.closePath();
+    ctx2.fill();
+
+    // Line
+    ctx2.strokeStyle = '#f7931e';
+    ctx2.lineWidth = 1.5;
+    ctx2.lineJoin = 'round';
+    ctx2.beginPath();
+    points.forEach((p, i) => i ? ctx2.lineTo(p.x, p.y) : ctx2.moveTo(p.x, p.y));
+    ctx2.stroke();
+
+    // Last-point dot
+    const last = points[points.length - 1];
+    ctx2.fillStyle = '#f7931e';
+    ctx2.beginPath();
+    ctx2.arc(last.x, last.y, 3, 0, Math.PI * 2);
+    ctx2.fill();
+    ctx2.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx2.lineWidth = 1;
+    ctx2.stroke();
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // DEEP-LINK BUTTONS — clicks on [data-deep-link="<tab>"] switch to that tab.
+  // Delegated listener so dynamically-rendered recommendations work too.
+  // ═══════════════════════════════════════════════════════
+  document.addEventListener('click', (ev) => {
+    const trigger = ev.target.closest('[data-deep-link]');
+    if (!trigger) return;
+    const tabName = trigger.getAttribute('data-deep-link');
+    if (!tabName) return;
+    ev.preventDefault();
+    const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    if (btn && typeof btn.click === 'function') btn.click();
+  });
 
   // ═══════════════════════════════════════════════════════
   // POPULATE ZERO USAGE TABLE
