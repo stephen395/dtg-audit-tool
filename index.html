@@ -73,6 +73,213 @@
             --transition: 0.2s ease;
         }
 
+        /* =====================================================================
+           LIGHT THEME — applied via body.theme-light. Default for the audit tool.
+           Inverts surface/text but preserves brand orange accent + carrier hues.
+           ===================================================================== */
+        body.theme-light {
+            --bg: #f5f6f8;
+            --surface: #ffffff;
+            --card: #ffffff;
+            --card-hover: #f9fafb;
+            --border: rgba(15, 17, 23, 0.08);
+            --border-light: rgba(15, 17, 23, 0.14);
+            --accent: #d97706;            /* deeper orange reads better on white */
+            --accent-hover: #b45309;
+            --accent-dim: rgba(217, 119, 6, 0.10);
+            --text: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --success: #16a34a;
+            --success-dim: rgba(22, 163, 74, 0.10);
+            --danger: #dc2626;
+            --danger-dim: rgba(220, 38, 38, 0.10);
+            --warning: #ca8a04;
+            --warning-dim: rgba(202, 138, 4, 0.10);
+            --info: #2563eb;
+            --info-dim: rgba(37, 99, 235, 0.10);
+            --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.04);
+            --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 36px rgba(15, 23, 42, 0.06);
+        }
+
+        body.theme-light {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* Subtle backdrop pattern for the light theme — keeps cards from floating in dead white */
+        body.theme-light::before {
+            content: '';
+            position: fixed; inset: 0;
+            background:
+                radial-gradient(1200px 600px at 0% 0%, rgba(217, 119, 6, 0.04), transparent 60%),
+                radial-gradient(900px 500px at 100% 100%, rgba(37, 99, 235, 0.03), transparent 60%);
+            pointer-events: none; z-index: 0;
+        }
+        body.theme-light > * { position: relative; z-index: 1; }
+
+        /* Card / surface: lighter borders, soft shadow instead of inner glow */
+        body.theme-light .kpi-card,
+        body.theme-light .dash-cell,
+        body.theme-light .dash-stack,
+        body.theme-light .dash-recs,
+        body.theme-light .dash-spend-row,
+        body.theme-light .dash-mini,
+        body.theme-light .dash-rec,
+        body.theme-light .export-card,
+        body.theme-light .rateplan-section,
+        body.theme-light .zu-dist-cell,
+        body.theme-light .exp-band-card,
+        body.theme-light .table-wrapper,
+        body.theme-light .data-table {
+            background: var(--card);
+            border-color: var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        /* Tab bar */
+        body.theme-light .tab-bar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        body.theme-light .tab-btn { color: var(--text-secondary); }
+        body.theme-light .tab-btn:hover { color: var(--text); background: rgba(15, 23, 42, 0.03); }
+        body.theme-light .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: transparent;
+        }
+        body.theme-light .tab-btn .tab-count {
+            background: var(--accent-dim); color: var(--accent);
+        }
+
+        /* Tab band — softer wash, no dark gradient */
+        body.theme-light .tab-band {
+            background:
+                radial-gradient(800px 200px at 0% 0%, rgba(217, 119, 6, 0.04), transparent 60%),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.015), transparent);
+            border-bottom-color: var(--border);
+        }
+
+        /* Data tables */
+        body.theme-light .data-table thead {
+            background: #f8fafc;
+        }
+        body.theme-light .data-table th {
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        body.theme-light .data-table td {
+            color: var(--text);
+            border-bottom: 1px solid var(--border);
+        }
+        body.theme-light .data-table tbody tr:hover { background: rgba(217, 119, 6, 0.04); }
+
+        /* Pagination, controls */
+        body.theme-light .table-search input,
+        body.theme-light .filter-select,
+        body.theme-light .plan-comp-input {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        body.theme-light .table-search input::placeholder { color: var(--text-muted); }
+        body.theme-light .pagination-btn {
+            background: #ffffff; border: 1px solid var(--border); color: var(--text);
+        }
+        body.theme-light .pagination-btn:hover:not(:disabled) {
+            background: rgba(217, 119, 6, 0.06); border-color: var(--accent);
+        }
+
+        /* Recommendations checkbox */
+        body.theme-light .dash-rec-checkbox { border-color: var(--border-light); background: #fff; }
+        body.theme-light .dash-rec-checkbox.checked { background: var(--accent); border-color: var(--accent); }
+
+        /* Dashboard hero — preserve the warm orange tint */
+        body.theme-light .dash-hero {
+            background:
+                radial-gradient(900px 300px at 0% 0%, rgba(217, 119, 6, 0.08), transparent 60%),
+                #ffffff;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-lg);
+        }
+
+        /* Plan-comp savings panel — green wash on white */
+        body.theme-light .pc-savings {
+            background:
+                radial-gradient(600px 180px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 60%),
+                #ffffff;
+            border-color: rgba(22, 163, 74, 0.22);
+        }
+
+        /* Headers, section titles */
+        body.theme-light h1, body.theme-light h2, body.theme-light h3, body.theme-light h4 { color: var(--text); }
+
+        /* Header bar (top of app) */
+        body.theme-light .header,
+        body.theme-light .app-header,
+        body.theme-light .top-bar,
+        body.theme-light .header-bar {
+            background: #ffffff;
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        }
+
+        /* Buttons */
+        body.theme-light .btn-run-audit { color: #fff; }
+        body.theme-light .password-btn { color: #fff; }
+        body.theme-light .plan-comp-bulk-btn { color: #fff; }
+
+        /* Logs / mono panels stay dark for readability */
+        body.theme-light .log-viewer {
+            background: #0f172a; color: #e2e8f0;
+            border: 1px solid var(--border);
+        }
+
+        /* Accent stripes on KPI cards */
+        body.theme-light .kpi-card.accent::before { background: var(--accent); }
+        body.theme-light .kpi-card.success::before { background: var(--success); }
+        body.theme-light .kpi-card.danger::before { background: var(--danger); }
+
+        /* Severity chips re-tuned for light bg */
+        body.theme-light .sev-chip.high   { background: rgba(220,38,38,0.08); color: #dc2626; border-color: rgba(220,38,38,0.22); }
+        body.theme-light .sev-chip.med    { background: rgba(217,119,6,0.08); color: #b45309; border-color: rgba(217,119,6,0.22); }
+        body.theme-light .sev-chip.low    { background: rgba(99,102,241,0.08); color: #4f46e5; border-color: rgba(99,102,241,0.22); }
+        body.theme-light .sev-chip.ok     { background: rgba(22,163,74,0.08); color: #16a34a; border-color: rgba(22,163,74,0.22); }
+
+        /* Callouts — adjust for light bg */
+        body.theme-light .tab-callout {
+            background: rgba(220,38,38,0.04);
+            border-color: rgba(220,38,38,0.18);
+        }
+        body.theme-light .tab-callout.success {
+            background: rgba(22,163,74,0.04);
+            border-color: rgba(22,163,74,0.20);
+        }
+        body.theme-light .tab-callout.info {
+            background: rgba(37,99,235,0.04);
+            border-color: rgba(37,99,235,0.18);
+        }
+        body.theme-light .tab-callout .ico { background: rgba(220,38,38,0.10); color: #dc2626; }
+        body.theme-light .tab-callout.success .ico { background: rgba(22,163,74,0.10); color: #16a34a; }
+        body.theme-light .tab-callout.info .ico { background: rgba(37,99,235,0.10); color: #2563eb; }
+        body.theme-light .tab-callout .btn-ghost {
+            background: #ffffff; color: var(--text); border-color: var(--border);
+        }
+        body.theme-light .tab-callout .btn-ghost:hover {
+            background: var(--accent-dim); border-color: var(--accent);
+        }
+        body.theme-light .tab-callout .btn-primary { color: #fff; }
+
+        /* Density helpers */
+        body.theme-light .zu-dist-cell { background: #fafbfc; }
+        body.theme-light .ur-hist .col { background: rgba(99, 102, 241, 0.55); }
+        body.theme-light .ur-hist .col.zero { background: rgba(220, 38, 38, 0.55); }
+        body.theme-light .exp-band-card { background: #fafbfc; }
+
+        /* Demo button override for light */
+        body.theme-light #demo-toggle { color: #fff !important; }
+
         html {
             font-size: 14px;
         }
@@ -4990,27 +5197,330 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260430-tabs-redesign"></script>
+    <script src="js/app.js?v=20260430-redesign-v2"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260430-tabs-redesign"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260430-tabs-redesign"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260430-tabs-redesign"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260430-tabs-redesign"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260430-tabs-redesign"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260430-tabs-redesign"></script>
-    <script src="js/analyzers/usage-report.js?v=20260430-tabs-redesign"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260430-tabs-redesign"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260430-tabs-redesign"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260430-tabs-redesign"></script>
-    <!-- cycle-trend.js is referenced by the new app.js but is feature-detected
-         (window.CycleTrendAnalyzer && ...) so a missing file is non-fatal. -->
-    <script src="js/reporters/pdf-report.js?v=20260430-tabs-redesign"></script>
-    <script src="js/reporters/excel-report.js?v=20260430-tabs-redesign"></script>
-    <script src="js/views/sheet-view.js?v=20260430-tabs-redesign"></script>
-    <script src="js/views/discrepancy.js?v=20260430-tabs-redesign"></script>
-    <script src="js/log/audit-log.js?v=20260430-tabs-redesign"></script>
-    <script src="js/api/agent-api.js?v=20260430-tabs-redesign"></script>
+    <script src="js/parsers/att-csv.js?v=20260430-redesign-v2"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260430-redesign-v2"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260430-redesign-v2"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260430-redesign-v2"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260430-redesign-v2"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260430-redesign-v2"></script>
+    <script src="js/analyzers/usage-report.js?v=20260430-redesign-v2"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260430-redesign-v2"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260430-redesign-v2"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260430-redesign-v2"></script>
+    <!-- cycle-trend.js is referenced by the new app.js but feature-detected,
+         so a missing file is non-fatal. -->
+    <script src="js/reporters/pdf-report.js?v=20260430-redesign-v2"></script>
+    <script src="js/reporters/excel-report.js?v=20260430-redesign-v2"></script>
+    <script src="js/views/sheet-view.js?v=20260430-redesign-v2"></script>
+    <script src="js/views/discrepancy.js?v=20260430-redesign-v2"></script>
+    <script src="js/log/audit-log.js?v=20260430-redesign-v2"></script>
+    <script src="js/api/agent-api.js?v=20260430-redesign-v2"></script>
 
 
+    <!-- ============================================================
+         DEMO MODE — populate every tab with sample data so the
+         redesign is previewable without running a real audit.
+         Toggle via the floating "Demo data" button (bottom-right).
+         Production: this block is harmless if no one clicks it.
+         ============================================================ -->
+    <div style="position:fixed;bottom:18px;right:18px;z-index:9999;display:flex;gap:8px;align-items:center;">
+        <button id="theme-toggle" type="button" style="
+             padding:10px 14px;background:rgba(255,255,255,0.95);color:#0f172a;
+             font-weight:600;font-size:12px;letter-spacing:0.04em;
+             border:1px solid rgba(15,23,42,0.12);border-radius:999px;cursor:pointer;
+             box-shadow:0 4px 12px rgba(0,0,0,0.15);user-select:none;">
+            ☀ Light
+        </button>
+        <button id="demo-toggle" type="button" style="
+             padding:10px 16px;background:#d97706;color:#fff;font-weight:700;
+             font-size:12px;letter-spacing:0.04em;text-transform:uppercase;
+             border:none;border-radius:999px;cursor:pointer;
+             box-shadow:0 8px 24px rgba(0,0,0,0.4);user-select:none;">
+            ▶ Preview with demo data
+        </button>
+    </div>
+    <script>
+    // ---- THEME TOGGLE ----
+    (function() {
+        const tBtn = document.getElementById('theme-toggle');
+        const saved = localStorage.getItem('dtg-theme') || 'light';
+        const apply = (mode) => {
+            if (mode === 'light') {
+                document.body.classList.add('theme-light');
+                tBtn.textContent = '☾ Dark';
+                tBtn.style.background = 'rgba(15, 23, 42, 0.95)';
+                tBtn.style.color = '#fff';
+                tBtn.style.borderColor = 'rgba(255,255,255,0.15)';
+            } else {
+                document.body.classList.remove('theme-light');
+                tBtn.textContent = '☀ Light';
+                tBtn.style.background = 'rgba(255,255,255,0.95)';
+                tBtn.style.color = '#0f172a';
+                tBtn.style.borderColor = 'rgba(15,23,42,0.12)';
+            }
+            localStorage.setItem('dtg-theme', mode);
+        };
+        apply(saved);
+        tBtn.addEventListener('click', () => {
+            const cur = document.body.classList.contains('theme-light') ? 'light' : 'dark';
+            apply(cur === 'light' ? 'dark' : 'light');
+        });
+    })();
+    </script>
+    <script>
+    (function() {
+        const btn = document.getElementById('demo-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+            // Build a plausible audit payload that matches the shape
+            // populateDashboardKPIs / populateTabBands expect.
+            const sample = makeSampleAudit();
+
+            // Drive the redesign:
+            try {
+                if (window.DTG && typeof window.DTG.runAudit === 'function') {
+                    // Best path: real pipeline with synthetic data
+                    // (only works if the production js modules are loaded)
+                }
+                // Direct populate via the demo helpers below
+                applyDemo(sample);
+                btn.textContent = '✓ Demo data loaded';
+                btn.style.background = '#22c55e';
+                setTimeout(() => {
+                    btn.textContent = '↻ Reload demo';
+                    btn.style.background = 'var(--accent)';
+                }, 1400);
+            } catch (e) {
+                console.error('demo failed', e);
+                btn.textContent = '⚠ Demo failed (see console)';
+                btn.style.background = '#ef4444';
+            }
+        });
+
+        function makeSampleAudit() {
+            return {
+                clientName: 'Acme Manufacturing',
+                carriers: ['ATT', 'Verizon'],
+                activeCycle: '2025-12',
+                trend: { snapshots: [], byCycle: {} },
+                usageReport: {
+                    summary: {
+                        totalLines: 300,
+                        billTotal: 18420.50,
+                        billPlan: 14200.00,
+                        billSurcharges: 2680.50,
+                        billTaxes: 1240.00,
+                        billActivity: 300.00,
+                        totalEquipment: 4820.00,
+                        totalMRC: 14200.00,
+                        upgradeEligible: 47,
+                        inContract: 198,
+                        zeroUsageCount: 28,
+                    },
+                    inventory: {
+                        total: 300,
+                        smartphones: 226,
+                        tablets: 32,
+                        hotspots: 18,
+                        watches: 24,
+                    },
+                    lines: Array.from({ length: 300 }, (_, i) => ({
+                        number: '555-' + String(1000 + i),
+                        dataMB: Math.max(0,
+                            i < 28 ? 0 :
+                            i < 200 ? Math.random() * 4000 :
+                            i < 280 ? 4000 + Math.random() * 8000 :
+                            12000 + Math.random() * 18000),
+                        flags: i > 285 ? ['overage'] : [],
+                    })),
+                },
+                zeroUsageSummary: {
+                    totalZeroUsage: 28,
+                    cancelSavings: 980,
+                    suspendSavings: 1240,
+                    totalMonthlySavings: 2220,
+                    lines: Array.from({ length: 28 }, (_, i) => ({
+                        number: '555-' + String(2000 + i),
+                        action: i < 16 ? 'Suspend' : 'Hold',
+                        contractStatus: i < 16 ? 'out-of-contract' : 'in-contract',
+                        inContract: i >= 16,
+                        daysToContractEnd: i >= 16 ? Math.floor(Math.random() * 200) : 9999,
+                        etf: i >= 16 ? 175 + Math.random() * 200 : 0,
+                    })),
+                },
+                ratePlans: {
+                    summary: { highZeroUsagePlans: 3 },
+                    plans: [
+                        { plan: 'Unlimited Plus',  count: 126, totalCost: 6048, matched: true },
+                        { plan: 'Pooled 5GB',      count: 72,  totalCost: 2592, matched: true },
+                        { plan: 'Smart Family',    count: 48,  totalCost: 1872, matched: true },
+                        { plan: 'Legacy 2GB',      count: 30,  totalCost: 1500, matched: false },
+                        { plan: 'Mobile Hotspot',  count: 18,  totalCost: 720,  matched: true },
+                        { plan: 'Wearable Share',  count: 6,   totalCost: 168,  matched: false },
+                    ],
+                },
+                planComparison: {
+                    totalMonthlySavings: 1840,
+                    currentTotal: 14200,
+                    proposedTotal: 12360,
+                    lines: Array.from({ length: 300 }, (_, i) => ({
+                        proposedPlan: i < 142 ? 'Unlimited Plus' : null,
+                    })),
+                },
+                discrepancies: [
+                    { resolved: false, inReview: false }, { resolved: false, inReview: false },
+                    { resolved: false, inReview: false }, { resolved: false, inReview: false },
+                    { resolved: false, inReview: false }, { resolved: false, inReview: false },
+                    { resolved: false, inReview: true  }, { resolved: false, inReview: true  },
+                    { resolved: true,  inReview: false }, { resolved: true,  inReview: false },
+                    { resolved: true,  inReview: false }, { resolved: true,  inReview: false },
+                ],
+            };
+        }
+
+        function applyDemo(d) {
+            const fmt = v => '$' + Number(v || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 0, maximumFractionDigits: 0
+            });
+            const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+            const setBar = (id, pct) => {
+                const el = document.getElementById(id);
+                if (el) el.style.width = Math.max(0, Math.min(100, pct)) + '%';
+            };
+
+            document.body.classList.add('has-audit-data');
+            document.body.classList.add('tabs-redesigned');
+
+            // ---- DASHBOARD ----
+            const ur = d.usageReport, zu = d.zeroUsageSummary, s = ur.summary;
+            set('kpi-total-spend', fmt(s.billTotal));
+            set('kpi-avg-cost',    fmt(s.billTotal / s.totalLines));
+            set('kpi-line-count',  s.totalLines);
+            set('kpi-plan-charges', fmt(s.billPlan));
+            set('kpi-equipment',   fmt(s.totalEquipment));
+            set('kpi-surcharges',  fmt(s.billSurcharges));
+            set('kpi-taxes',       fmt(s.billTaxes));
+            set('kpi-activity',    fmt(s.billActivity));
+            set('kpi-total-lines', ur.inventory.total);
+            set('kpi-smartphones', ur.inventory.smartphones);
+            set('kpi-tablets',     ur.inventory.tablets + ur.inventory.hotspots);
+            set('kpi-wearables',   ur.inventory.watches);
+            set('kpi-upgrade-eligible', s.upgradeEligible);
+            set('kpi-in-contract',     s.inContract);
+            set('kpi-total-savings',   fmt(zu.totalMonthlySavings));
+            set('kpi-zero-lines',      zu.totalZeroUsage);
+            set('kpi-zero-cost',       fmt(zu.cancelSavings + zu.suspendSavings));
+            set('kpi-plan-opts',       d.ratePlans.summary.highZeroUsagePlans);
+            set('kpi-annual-savings',  fmt(zu.totalMonthlySavings * 12));
+
+            // ---- ZERO USAGE BAND ----
+            set('zu-band-count', zu.totalZeroUsage);
+            set('zu-band-mrc',   fmt(zu.cancelSavings + zu.suspendSavings) + '/mo');
+            set('zu-band-savings', fmt(zu.totalMonthlySavings * 12));
+            const high = zu.lines.filter(l => l.contractStatus === 'out-of-contract').length;
+            const med  = zu.lines.filter(l => l.daysToContractEnd < 90 && l.inContract).length;
+            const low  = zu.lines.length - high - med;
+            const etf  = zu.lines.reduce((s, l) => s + (l.etf || 0), 0);
+            const max = Math.max(high, med, low, 1);
+            set('zu-dist-high', high); setBar('zu-bar-high', (high / max) * 100);
+            set('zu-dist-med',  med);  setBar('zu-bar-med',  (med / max) * 100);
+            set('zu-dist-low',  low);  setBar('zu-bar-low',  (low / max) * 100);
+            set('zu-dist-etf',  fmt(etf)); setBar('zu-bar-etf', 60);
+            set('zu-callout-headline', high + ' lines ready to suspend immediately.');
+            set('zu-callout-detail', 'Recoverable: ' + fmt(zu.totalMonthlySavings * 12) + '/yr if all out-of-contract zero-usage lines are suspended.');
+
+            // ---- USAGE REPORT BAND ----
+            const lines = ur.lines;
+            const totalMB = lines.reduce((a, l) => a + (l.dataMB || 0), 0);
+            set('ur-band-total', s.totalLines);
+            set('ur-band-data',  (totalMB / 1024).toFixed(1));
+            set('ur-band-overage', lines.filter(l => (l.flags || []).includes('overage')).length);
+            set('ur-band-zero',  s.zeroUsageCount);
+            const sorted = lines.map(l => l.dataMB || 0).sort((a, b) => a - b);
+            const pct = p => sorted[Math.min(Math.floor(sorted.length * p), sorted.length - 1)] || 0;
+            const fmtMB = v => v < 1024 ? Math.round(v) + ' MB' : (v / 1024).toFixed(1) + ' GB';
+            set('ur-p50',  fmtMB(pct(0.50)));
+            set('ur-p75',  fmtMB(pct(0.75)));
+            set('ur-p90',  fmtMB(pct(0.90)));
+            set('ur-p99',  fmtMB(pct(0.99)));
+            set('ur-mean', fmtMB(sorted.reduce((a,b) => a+b, 0) / sorted.length));
+            // histogram
+            const hist = document.getElementById('ur-hist');
+            if (hist) {
+                const bins = 15;
+                const maxV = sorted[sorted.length - 1] || 1;
+                const buckets = new Array(bins).fill(0);
+                sorted.forEach(v => {
+                    const i = Math.min(bins - 1, Math.floor((v / maxV) * bins));
+                    buckets[i]++;
+                });
+                const mb = Math.max(...buckets, 1);
+                hist.innerHTML = buckets.map((b, i) => {
+                    const h = Math.max(2, (b / mb) * 100);
+                    return '<div class="col' + (i === 0 ? ' zero' : '') + '" style="height:' + h + '%" title="' + b + ' lines"></div>';
+                }).join('');
+            }
+
+            // ---- RATE PLANS BAND ----
+            const plans = d.ratePlans.plans;
+            const totalLines = plans.reduce((a, p) => a + p.count, 0);
+            const totalCost  = plans.reduce((a, p) => a + p.totalCost, 0);
+            const matched   = plans.filter(p => p.matched).length;
+            set('rp-band-plans', plans.length);
+            set('rp-band-avg',   fmt(totalCost / totalLines));
+            set('rp-band-match', Math.round((matched / plans.length) * 100) + '%');
+            const palette = ['#6366f1', '#22c55e', '#f7931e', '#ef4444', '#a78bfa', '#06b6d4'];
+            const sortedPlans = plans.slice().sort((a, b) => b.count - a.count);
+            const stack  = document.getElementById('rp-stack');
+            const legend = document.getElementById('rp-legend');
+            if (stack) {
+                stack.innerHTML = sortedPlans.map((p, i) => {
+                    const w = (p.count / totalLines) * 100;
+                    return '<div style="background:' + palette[i % palette.length] + ';width:' + w + '%" title="' + p.plan + ': ' + p.count + ' lines">' + (w >= 8 ? Math.round(w) + '%' : '') + '</div>';
+                }).join('');
+            }
+            if (legend) {
+                legend.innerHTML = sortedPlans.map((p, i) =>
+                    '<div class="rp-legend-item"><span class="sw" style="background:' + palette[i % palette.length] + '"></span>' + p.plan + ' <span class="ct">(' + p.count + ')</span></div>'
+                ).join('');
+            }
+            set('rp-insight-headline', plans.length + ' distinct plans across the fleet.');
+            set('rp-insight-detail', 'Consolidating to 2-3 plans typically cuts admin overhead and unlocks volume pricing tiers.');
+
+            // ---- PLAN COMPARISON BAND ----
+            const pc = d.planComparison;
+            const proposedLines = pc.lines.filter(l => l.proposedPlan).length;
+            set('pc-big-annual',     fmt(pc.totalMonthlySavings * 12));
+            set('pc-big-monthly',    fmt(pc.totalMonthlySavings));
+            set('pc-big-lines',      proposedLines);
+            set('pc-cur-mrc',        fmt(pc.currentTotal) + '/mo');
+            set('pc-prop-mrc',       fmt(pc.proposedTotal) + '/mo');
+            set('pc-coverage-pct',   Math.round((proposedLines / pc.lines.length) * 100));
+            set('pc-coverage-lines', proposedLines + ' of ' + pc.lines.length);
+            const cut = ((pc.currentTotal - pc.proposedTotal) / pc.currentTotal) * 100;
+            set('pc-pct-cut', cut.toFixed(1) + '% reduction');
+
+            // ---- DISCREPANCIES ----
+            const ds = d.discrepancies;
+            set('disc-band-open',     ds.filter(x => !x.resolved && !x.inReview).length);
+            set('disc-band-review',   ds.filter(x => x.inReview).length);
+            set('disc-band-resolved', ds.filter(x => x.resolved).length);
+
+            // ---- EXPORTS ----
+            const dt = new Date();
+            set('exp-run-date',   dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }));
+            set('exp-run-client', d.clientName);
+            set('exp-lines',      s.totalLines);
+            set('exp-carriers',   d.carriers.length + ' carriers');
+            set('exp-findings',   zu.totalZeroUsage + proposedLines);
+            set('exp-savings',    fmt((zu.totalMonthlySavings + pc.totalMonthlySavings) * 12));
+
+            // Enable export buttons (visual only for demo)
+            document.querySelectorAll('.btn-export').forEach(b => { b.disabled = false; });
+        }
+    })();
+    </script>
 </body>
 </html>
