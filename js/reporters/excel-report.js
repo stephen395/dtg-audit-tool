@@ -17,20 +17,25 @@ window.ExcelReporter = (function () {
    * @returns {XLSX.WorkBook}
    */
   function generate(data) {
-    const { carrier, clientName, billingPeriod, zeroUsageResults, usageReport, ratePlans, profiles, planComparison, planComparisonSummary } = data;
+    const { carrier, clientName, billingPeriod, zeroUsageResults, usageReport, ratePlans, profiles, planComparison, planComparisonSummary, allMeta, meta } = data;
     const wb = XLSX.utils.book_new();
     const carrierName = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile' }[carrier] || carrier;
+    // Prefer the unfiltered allMeta when present (multi-BAN audits) so the
+    // "By BAN" sheet always lists every active sub-account, not just whichever
+    // one the dashboard happened to be filtered to at export time.
+    const reportMeta = allMeta || meta || {};
 
     // ── Sheet 1: Zero Usage & Recommendations ──
     const zuHeaders = [
-      'Wireless Number', 'User Name', 'Device Type', 'Rate Plan',
+      'Wireless Number', 'Account #', 'User Name', 'Device Type', 'Rate Plan',
       '90-Day GB Total', '90-Day GB Avg', '90-Day Min Total', '90-Day Min Avg',
-      '90-Day Msg Total', '90-Day Msg Avg', 'MRC (3-Mo Avg)', 'Contract End',
+      '90-Day Msg Total', '90-Day Msg Avg', 'MRC', 'Contract End',
       'Action', 'Reason', 'Monthly Savings', 'One-Time Cost'
     ];
 
     const zuData = zeroUsageResults.map(r => [
       r.wireless,
+      r.ban || '',
       r.userName,
       r.deviceType || '',
       r.ratePlan || '',
@@ -60,7 +65,7 @@ window.ExcelReporter = (function () {
 
     // Add total row
     XLSX.utils.sheet_add_aoa(zuSheet, [[
-      'TOTAL', '', '', '', '', '', '', '', '', '',
+      'TOTAL', '', '', '', '', '', '', '', '', '', '',
       fmtMoney(zeroUsageResults.reduce((s, r) => s + (r.mrc || 0), 0)),
       '', '', '',
       fmtMoney(totalSavings),
@@ -69,13 +74,67 @@ window.ExcelReporter = (function () {
 
     // Column widths
     zuSheet['!cols'] = [
-      { wch: 15 }, { wch: 20 }, { wch: 14 }, { wch: 35 },
+      { wch: 15 }, { wch: 22 }, { wch: 20 }, { wch: 14 }, { wch: 35 },
       { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
       { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 },
       { wch: 16 }, { wch: 45 }, { wch: 14 }, { wch: 14 },
     ];
 
     XLSX.utils.book_append_sheet(wb, zuSheet, 'Zero Usage');
+
+    // ── Sheet 1.5: By BAN (only if multi-account) ─────────────────────────
+    // Per-sub-account snapshot for multi-BAN audits. For single-BAN clients
+    // we skip this sheet — it would just be a one-row table.
+    const byBan = (reportMeta && reportMeta.byBan) || {};
+    const activeBans = (reportMeta && reportMeta.activeBans) || Object.keys(byBan);
+    if (activeBans.length > 1) {
+      const banHeaders = [
+        'Account #', 'Bill Name', 'Lines (latest)', 'Latest Bill',
+        'Plan Charges', 'Equipment', 'Surcharges', 'Taxes',
+        '90-day Spend', 'Zero-Usage Lines',
+      ];
+      const banRows = activeBans
+        .filter(b => byBan[b])
+        .sort((a, b) => (byBan[b].billLatest || 0) - (byBan[a].billLatest || 0))
+        .map(b => {
+          const i = byBan[b];
+          return [
+            b,
+            i.billName || '',
+            i.latestLineCount || 0,
+            fmtMoney(i.billLatest || 0),
+            fmtMoney(i.billLatestPlan || 0),
+            fmtMoney(i.billLatestEquipment || 0),
+            fmtMoney(i.billLatestFees || 0),
+            fmtMoney(i.billLatestTaxes || 0),
+            fmtMoney(i.totalSpend90d || 0),
+            i.zeroUsageCount || 0,
+          ];
+        });
+      const banTotals = [
+        'TOTAL', '',
+        banRows.reduce((s, r) => s + (Number(r[2]) || 0), 0),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].billLatest) || 0), 0)),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].billLatestPlan) || 0), 0)),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].billLatestEquipment) || 0), 0)),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].billLatestFees) || 0), 0)),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].billLatestTaxes) || 0), 0)),
+        fmtMoney(activeBans.reduce((s, b) => s + ((byBan[b] && byBan[b].totalSpend90d) || 0), 0)),
+        banRows.reduce((s, r) => s + (Number(r[9]) || 0), 0),
+      ];
+      const banTitle = [
+        [`${carrierName} By Sub-Account (BAN) — ${clientName}`],
+        [`${activeBans.length} active BANs (dormant sub-accounts excluded)`],
+        [],
+      ];
+      const banSheet = XLSX.utils.aoa_to_sheet([...banTitle, banHeaders, ...banRows, banTotals]);
+      banSheet['!cols'] = [
+        { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 14 },
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 14 }, { wch: 16 },
+      ];
+      XLSX.utils.book_append_sheet(wb, banSheet, 'By BAN');
+    }
 
     // ── Sheet 2: Device Payments ──
     const dpHeaders = [

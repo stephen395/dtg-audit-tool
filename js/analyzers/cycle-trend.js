@@ -75,7 +75,15 @@ window.CycleTrendAnalyzer = (function () {
    * @param {Object} billByCycle — {cycleDate: {totalCurrent, monthlyCharges, activity, taxes, fees}}
    */
   function buildSnapshots(profiles, billByCycle) {
-    const cycleKeys = Object.keys(billByCycle || {}).sort();
+    // Verizon cycle keys ("Jan 31, 2026") sort wrong alphabetically — Feb beats
+    // Jan beats Mar. Sort by the parsed Date so cycles always run oldest→newest
+    // regardless of label format.
+    const cycleKeys = Object.keys(billByCycle || {}).sort((a, b) => {
+      const da = parseCycleDate(a);
+      const db = parseCycleDate(b);
+      if (da && db) return da.getTime() - db.getTime();
+      return String(a).localeCompare(String(b));
+    });
     const snapshots = [];
 
     for (const cycle of cycleKeys) {
