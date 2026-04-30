@@ -20,7 +20,7 @@
     <!-- jsPDF-AutoTable -->
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
     <!-- SheetJS -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <!-- Tabulator (editable data grid for Sheet View) -->
     <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css" rel="stylesheet">
@@ -2306,6 +2306,809 @@
             .kpi-row { grid-template-columns: 1fr; }
             .savings-grid { grid-template-columns: 1fr; }
         }
+
+        /* ════════════════════════════════════════════════════════════
+           DASHBOARD REDESIGN (Apr 2026)
+           Hero + sidebar layout, ranked recommendations, fleet panel.
+           Scoped via .dash-* classes so it doesn't bleed into other tabs.
+           ════════════════════════════════════════════════════════════ */
+
+        /* Status chip — promoted from debug strip to header-level pill row */
+        .status-indicators {
+            display: flex !important;
+            align-items: center;
+            gap: 14px;
+            padding: 8px 14px;
+            margin: 10px 0 4px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .status-indicators .status-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            letter-spacing: 0.04em;
+        }
+        .status-indicators .status-item::before {
+            content: '';
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 6px var(--success);
+        }
+        .status-indicators .status-item.warn::before { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+        .status-indicators .status-item.bad::before  { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+
+        /* Layout grid */
+        .dash-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+        @media (max-width: 1100px) {
+            .dash-grid { grid-template-columns: 1fr; }
+        }
+        .dash-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+        /* Cards */
+        .dash-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px 22px;
+        }
+        .dash-card.hero {
+            padding: 26px 28px;
+            background: linear-gradient(180deg, var(--surface) 0%, rgba(247,147,30,0.04) 100%);
+            border-color: var(--border);
+        }
+
+        .dash-eyebrow {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Hero number */
+        .dash-hero-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .dash-hero-num {
+            font-size: 56px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.025em;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+        .dash-hero-meta {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 10px;
+            font-size: 12.5px;
+        }
+        .dash-delta {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+        .dash-delta.up   { color: var(--danger); }
+        .dash-delta.down { color: var(--success); }
+        .dash-delta.flat { color: var(--text-secondary); }
+
+        .dash-hero-spark {
+            width: 240px;
+            max-width: 50%;
+            height: 70px;
+            position: relative;
+        }
+        .dash-hero-spark canvas { width: 100% !important; height: 100% !important; }
+
+        .dash-callout {
+            margin-top: 18px;
+            padding: 12px 16px;
+            background: rgba(247,147,30,0.10);
+            border: 1px solid rgba(247,147,30,0.35);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .dash-callout .ico {
+            width: 28px; height: 28px;
+            flex-shrink: 0;
+            background: var(--accent);
+            border-radius: 7px;
+            color: #1a1a1a;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .dash-callout .txt { flex: 1; font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; }
+        .dash-callout .txt strong { color: var(--text); font-weight: 600; }
+        .dash-callout .btn-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .dash-callout .btn-cta:hover { background: var(--surface-hover, rgba(255,255,255,0.05)); border-color: var(--accent); }
+
+        /* Spend breakdown row */
+        .dash-section-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .dash-section-label::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .dash-breakdown {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+        @media (max-width: 900px) {
+            .dash-breakdown { grid-template-columns: repeat(2, 1fr); }
+        }
+        .dash-mini {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .dash-mini.accent { border-color: rgba(247,147,30,0.35); }
+        .dash-mini-label {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+        }
+        .dash-mini-val {
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.02em;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+        .dash-mini-bar {
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .dash-mini-bar > div {
+            height: 100%;
+            background: var(--text-secondary);
+            border-radius: 2px;
+            transition: width 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+            width: 0;
+        }
+        .dash-mini.accent .dash-mini-bar > div { background: var(--accent); }
+        .dash-mini-sub {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Fleet composition */
+        .dash-stack-bar {
+            display: flex;
+            height: 36px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .dash-stack-bar > div {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: #1a1a1a;
+            white-space: nowrap;
+            padding: 0 8px;
+            overflow: hidden;
+            border-right: 1px solid rgba(0,0,0,0.4);
+            min-width: 0;
+        }
+        .dash-stack-bar > div:last-child { border-right: none; }
+        .dash-stack-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 12px;
+            font-size: 12px;
+        }
+        .dash-stack-legend .item { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+        .dash-stack-legend .swatch { width: 10px; height: 10px; border-radius: 3px; }
+        .dash-stack-legend strong { color: var(--text); font-weight: 600; }
+
+        .dash-fleet-bottom {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+        @media (max-width: 700px) {
+            .dash-fleet-bottom { grid-template-columns: 1fr; }
+        }
+
+        .dash-donut-block {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 4px 0;
+        }
+        .dash-donut {
+            width: 88px; height: 88px;
+            border-radius: 50%;
+            position: relative;
+            flex-shrink: 0;
+            background: conic-gradient(var(--text) 0 50%, rgba(255,255,255,0.08) 50% 100%);
+            transition: background 0.6s cubic-bezier(0.2, 0.7, 0.3, 1);
+        }
+        .dash-donut .center {
+            position: absolute;
+            inset: 22%;
+            background: var(--surface);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            text-align: center;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+        }
+        .dash-donut .pct { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1; }
+        .dash-donut .lbl { font-size: 9px; color: var(--text-secondary); letter-spacing: 0.08em; margin-top: 2px; }
+
+        .dash-cta {
+            background: rgba(247,147,30,0.10);
+            border: 1px solid rgba(247,147,30,0.35);
+            border-radius: 8px;
+            padding: 16px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .dash-cta-num {
+            font-size: 26px;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            margin-top: 4px;
+        }
+
+        /* Recommendations panel */
+        .dash-rec-panel {
+            display: flex;
+            flex-direction: column;
+        }
+        .dash-rec-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .dash-rec-progress {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .dash-rec-sub {
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            margin: 4px 0 14px;
+        }
+        .dash-rec-list { display: flex; flex-direction: column; }
+        .dash-rec-item {
+            display: flex;
+            gap: 12px;
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            align-items: flex-start;
+            transition: opacity 0.2s;
+        }
+        .dash-rec-item:first-child { padding-top: 4px; }
+        .dash-rec-item:last-child { border-bottom: none; padding-bottom: 4px; }
+        .dash-rec-item.checked { opacity: 0.45; }
+        .dash-rec-item.checked .dash-rec-title-text {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+
+        .dash-rec-checkbox {
+            width: 18px; height: 18px;
+            border: 1.5px solid var(--border);
+            border-radius: 4px;
+            flex-shrink: 0;
+            margin-top: 1px;
+            background: var(--bg, #0d1117);
+            cursor: pointer;
+            position: relative;
+            transition: all 0.15s;
+        }
+        .dash-rec-checkbox:hover { border-color: var(--accent); }
+        .dash-rec-checkbox.checked {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        .dash-rec-checkbox.checked::after {
+            content: '';
+            position: absolute;
+            left: 5px; top: 1px;
+            width: 5px; height: 10px;
+            border: solid #1a1a1a;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .dash-rec-rank {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            width: 18px;
+            flex-shrink: 0;
+        }
+        .dash-rec-body { flex: 1; min-width: 0; }
+        .dash-rec-title-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 3px;
+        }
+        .dash-rec-title-text {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .dash-rec-savings {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--success);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .dash-rec-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.45;
+        }
+        .dash-rec-meta a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-bottom: 1px dashed currentColor;
+            cursor: pointer;
+        }
+        .dash-rec-meta a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+        .dash-rec-footer {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .dash-rec-footer .total-num {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--success);
+            font-variant-numeric: tabular-nums;
+        }
+        .dash-rec-footer .total-num small {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
+
+        /* Empty state */
+        .dash-empty {
+            text-align: center;
+            padding: 72px 24px;
+            background: var(--surface);
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+        }
+        .dash-empty .ico {
+            width: 56px; height: 56px;
+            margin: 0 auto 18px;
+            background: rgba(247,147,30,0.10);
+            border: 1px dashed rgba(247,147,30,0.4);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--accent);
+        }
+        .dash-empty h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; color: var(--text); }
+        .dash-empty p { margin: 0 auto 22px; color: var(--text-secondary); font-size: 13.5px; max-width: 420px; }
+
+        /* Empty state shows when no audit has been run */
+        body:not(.has-audit-data) #tab-dashboard .dash-grid { display: none; }
+        body:not(.has-audit-data) #tab-dashboard .dash-empty { display: block; }
+        body.has-audit-data #tab-dashboard .dash-empty { display: none; }
+
+        /* =====================================================================
+           TAB REDESIGNS — shared system, purpose-fit per tab
+           v=20260430-tabs-redesign
+           ===================================================================== */
+
+        /* Generic tab summary band: sits above existing .table-controls */
+        .tab-band {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+            padding: 18px 20px 16px;
+            margin: -16px -20px 16px;
+            background:
+                radial-gradient(800px 200px at 0% 0%, rgba(247,147,30,0.06), transparent 60%),
+                linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-band-head {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            gap: 24px; flex-wrap: wrap;
+        }
+        .tab-band-title {
+            font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--text-muted); margin: 0 0 4px;
+        }
+        .tab-band-headline {
+            font-size: 22px; font-weight: 700; color: var(--text);
+            letter-spacing: -0.01em; margin: 0; line-height: 1.2;
+            text-wrap: pretty;
+        }
+        .tab-band-headline em {
+            font-style: normal; color: var(--accent);
+        }
+        .tab-band-sub {
+            margin: 6px 0 0; color: var(--text-secondary); font-size: 13.5px;
+            max-width: 64ch; line-height: 1.5;
+        }
+
+        /* Stat cluster — small at top right of band */
+        .tab-band-stats {
+            display: flex; gap: 18px; flex-wrap: wrap;
+            border-left: 1px solid var(--border); padding-left: 20px;
+        }
+        .tab-band-stat .num {
+            font-size: 24px; font-weight: 700; color: var(--text);
+            font-feature-settings: "tnum"; letter-spacing: -0.02em; line-height: 1;
+        }
+        .tab-band-stat .num.success { color: #22c55e; }
+        .tab-band-stat .num.danger  { color: #ef4444; }
+        .tab-band-stat .num.warn    { color: var(--accent); }
+        .tab-band-stat .lbl {
+            margin-top: 6px; font-size: 11px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.08em;
+        }
+
+        /* Severity / chip system — used in Zero Usage rows + Discrepancies */
+        .sev-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 2px 8px; border-radius: 999px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+            border: 1px solid transparent;
+        }
+        .sev-chip::before {
+            content: ''; width: 6px; height: 6px; border-radius: 50%;
+            background: currentColor;
+        }
+        .sev-chip.high   { background: rgba(239,68,68,0.10);  color: #f87171; border-color: rgba(239,68,68,0.25); }
+        .sev-chip.med    { background: rgba(247,147,30,0.10); color: var(--accent); border-color: rgba(247,147,30,0.25); }
+        .sev-chip.low    { background: rgba(99,102,241,0.10); color: #818cf8; border-color: rgba(99,102,241,0.25); }
+        .sev-chip.ok     { background: rgba(34,197,94,0.10);  color: #4ade80; border-color: rgba(34,197,94,0.25); }
+        .sev-chip.muted  { background: rgba(255,255,255,0.04); color: var(--text-muted); border-color: var(--border); }
+
+        /* Anomaly callout strip (above tables, below band) */
+        .tab-callout {
+            display: flex; align-items: center; gap: 14px;
+            padding: 12px 16px; margin: 0 0 14px;
+            background: rgba(239,68,68,0.06);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 10px;
+        }
+        .tab-callout.success { background: rgba(34,197,94,0.06); border-color: rgba(34,197,94,0.22); }
+        .tab-callout.info    { background: rgba(99,102,241,0.06); border-color: rgba(99,102,241,0.22); }
+        .tab-callout .ico {
+            width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(239,68,68,0.15); color: #f87171;
+        }
+        .tab-callout.success .ico { background: rgba(34,197,94,0.15); color: #4ade80; }
+        .tab-callout.info    .ico { background: rgba(99,102,241,0.15); color: #818cf8; }
+        .tab-callout .txt { flex: 1; font-size: 13.5px; color: var(--text-secondary); line-height: 1.45; }
+        .tab-callout .txt strong { color: var(--text); font-weight: 600; }
+        .tab-callout .txt code {
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 12px; padding: 1px 6px; border-radius: 4px;
+            background: rgba(255,255,255,0.06); color: var(--text);
+        }
+        .tab-callout .actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .tab-callout .btn-ghost {
+            padding: 6px 12px; font-size: 12px; font-weight: 600;
+            background: transparent; color: var(--text);
+            border: 1px solid var(--border-light); border-radius: 6px;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .tab-callout .btn-ghost:hover { background: rgba(255,255,255,0.04); border-color: var(--accent); }
+        .tab-callout .btn-primary {
+            padding: 6px 12px; font-size: 12px; font-weight: 600;
+            background: var(--accent); color: #1a1a1a;
+            border: 1px solid var(--accent); border-radius: 6px;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .tab-callout .btn-primary:hover { background: var(--accent-hover); }
+
+        /* ZERO USAGE — distribution mini-bars */
+        .zu-dist {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 10px; margin-top: 4px;
+        }
+        .zu-dist-cell {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 14px;
+        }
+        .zu-dist-cell .top {
+            display: flex; align-items: baseline; justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .zu-dist-cell .top .lbl {
+            font-size: 11px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        .zu-dist-cell .top .val {
+            font-size: 18px; font-weight: 700; color: var(--text);
+            font-feature-settings: "tnum";
+        }
+        .zu-dist-cell .bar {
+            height: 4px; background: rgba(255,255,255,0.05);
+            border-radius: 999px; overflow: hidden;
+        }
+        .zu-dist-cell .bar > div { height: 100%; border-radius: 999px; }
+        .zu-dist-cell.high .bar > div { background: #ef4444; }
+        .zu-dist-cell.med  .bar > div { background: var(--accent); }
+        .zu-dist-cell.low  .bar > div { background: #818cf8; }
+        .zu-dist-cell.ok   .bar > div { background: #22c55e; }
+        .zu-dist-cell .sub { margin-top: 6px; font-size: 11.5px; color: var(--text-muted); }
+
+        /* USAGE REPORT — histogram strip */
+        .ur-hist {
+            display: flex; align-items: flex-end; gap: 3px;
+            height: 60px; padding: 8px 0;
+        }
+        .ur-hist .col {
+            flex: 1; background: rgba(99,102,241,0.4);
+            border-radius: 2px 2px 0 0; min-height: 2px;
+            position: relative;
+            transition: background 0.15s;
+        }
+        .ur-hist .col:hover { background: var(--accent); }
+        .ur-hist .col.zero { background: rgba(239,68,68,0.5); }
+        .ur-hist-axis {
+            display: flex; justify-content: space-between;
+            font-size: 10px; color: var(--text-muted);
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            margin-top: 4px;
+        }
+        .ur-percentiles {
+            display: flex; gap: 16px; flex-wrap: wrap;
+            margin-top: 8px; padding-top: 12px;
+            border-top: 1px dashed var(--border);
+        }
+        .ur-percentile {
+            display: flex; align-items: baseline; gap: 6px;
+            font-size: 12px;
+        }
+        .ur-percentile .p { color: var(--text-muted); font-size: 11px; }
+        .ur-percentile .v { color: var(--text); font-weight: 600;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-feature-settings: "tnum";
+        }
+
+        /* RATE PLANS — composition card */
+        .rp-comp {
+            display: grid; grid-template-columns: 1.4fr 1fr;
+            gap: 16px; align-items: stretch;
+        }
+        .rp-stack {
+            display: flex; height: 32px; border-radius: 6px; overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .rp-stack > div {
+            position: relative;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 600; color: #fff;
+            transition: filter 0.15s;
+        }
+        .rp-stack > div:hover { filter: brightness(1.15); }
+        .rp-legend {
+            display: flex; flex-wrap: wrap; gap: 12px 18px;
+            margin-top: 10px;
+        }
+        .rp-legend-item {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 12px; color: var(--text-secondary);
+        }
+        .rp-legend-item .sw {
+            width: 10px; height: 10px; border-radius: 2px;
+        }
+        .rp-legend-item .ct {
+            color: var(--text-muted); font-size: 11px;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+        }
+
+        /* PLAN COMPARISON — savings panel redesign (sits above bulk bar) */
+        .pc-savings {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr auto;
+            gap: 0;
+            padding: 18px 20px;
+            margin: 0 0 16px;
+            background:
+                radial-gradient(600px 180px at 100% 0%, rgba(34,197,94,0.10), transparent 60%),
+                linear-gradient(180deg, rgba(34,197,94,0.04), rgba(255,255,255,0.01));
+            border: 1px solid rgba(34,197,94,0.2);
+            border-radius: 12px;
+            align-items: end;
+        }
+        .pc-savings-cell {
+            padding-right: 20px;
+            border-right: 1px solid var(--border);
+        }
+        .pc-savings-cell:last-child { border-right: none; padding-right: 0; }
+        .pc-savings-cell + .pc-savings-cell { padding-left: 20px; }
+        .pc-savings .eyebrow {
+            font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em;
+            text-transform: uppercase; color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+        .pc-savings .big {
+            font-size: 32px; font-weight: 700; color: #22c55e;
+            font-feature-settings: "tnum"; letter-spacing: -0.02em;
+            line-height: 1;
+        }
+        .pc-savings .med {
+            font-size: 22px; font-weight: 700; color: var(--text);
+            font-feature-settings: "tnum"; letter-spacing: -0.01em;
+            line-height: 1.1;
+        }
+        .pc-savings .sub {
+            margin-top: 8px; font-size: 12px; color: var(--text-secondary);
+        }
+        .pc-savings .arrow-row {
+            display: flex; align-items: center; gap: 10px;
+            font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            font-size: 13px; color: var(--text);
+        }
+        .pc-savings .arrow-row .from {
+            color: var(--text-muted); text-decoration: line-through;
+        }
+        .pc-savings .arrow-row .to { color: #22c55e; font-weight: 600; }
+        .pc-savings .toggle {
+            display: inline-flex; gap: 0;
+            padding: 3px; border-radius: 8px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+        }
+        .pc-savings .toggle button {
+            padding: 6px 14px; font-size: 12px; font-weight: 600;
+            background: transparent; color: var(--text-muted);
+            border: none; border-radius: 5px; cursor: pointer;
+        }
+        .pc-savings .toggle button.active {
+            background: var(--accent); color: #1a1a1a;
+        }
+
+        /* Hide original plan-comp banner now that we have pc-savings */
+        body.tabs-redesigned #plan-comp-savings-banner { display: none; }
+
+        /* DISCREPANCIES — feed wrapper (works alongside existing #discrepancy-content) */
+        .disc-feed-empty {
+            text-align: center; padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        /* EXPORTS — preview card upgrade (sits above existing .exports-grid) */
+        .exp-band {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin: 0 0 18px;
+        }
+        .exp-band-card {
+            padding: 14px 16px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+        .exp-band-card .lbl {
+            font-size: 11px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        .exp-band-card .val {
+            margin-top: 6px; font-size: 18px; font-weight: 700;
+            color: var(--text); font-feature-settings: "tnum";
+        }
+        .exp-band-card .sub {
+            margin-top: 4px; font-size: 11.5px; color: var(--text-secondary);
+        }
+
+        /* =====================================================================
+           Empty-state visibility toggles for tab bands
+           Show summary content only when audit data exists
+           ===================================================================== */
+        body:not(.has-audit-data) .tab-band .tab-band-stats,
+        body:not(.has-audit-data) .zu-dist,
+        body:not(.has-audit-data) .ur-hist-wrap,
+        body:not(.has-audit-data) .rp-comp,
+        body:not(.has-audit-data) .tab-callout,
+        body:not(.has-audit-data) .pc-savings,
+        body:not(.has-audit-data) .exp-band { opacity: 0.4; pointer-events: none; }
+
+        /* Density tweak: when redesigned, table-controls feel tighter */
+        body.tabs-redesigned .table-controls { margin-top: 0; }
+        body.tabs-redesigned .tab-panel { padding-top: 0; }
+
+        /* Responsive */
+        @media (max-width: 980px) {
+            .tab-band { padding: 14px 16px; margin: -12px -16px 14px; }
+            .tab-band-stats { border-left: none; padding-left: 0;
+                border-top: 1px solid var(--border); padding-top: 12px; width: 100%; }
+            .pc-savings { grid-template-columns: 1fr; gap: 12px; }
+            .pc-savings-cell { border-right: none; border-bottom: 1px solid var(--border);
+                padding-right: 0; padding-bottom: 12px; }
+            .pc-savings-cell:last-child { border-bottom: none; padding-bottom: 0; }
+            .pc-savings-cell + .pc-savings-cell { padding-left: 0; padding-top: 12px; }
+            .zu-dist { grid-template-columns: repeat(2, 1fr); }
+            .rp-comp { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -2727,196 +3530,285 @@
 
                     <!-- Cycle selector — lets the auditor flip between billing cycles
                          so the dashboard can show any month's snapshot, not just latest. -->
-                    <div id="cycle-selector" style="display:none;padding:10px 14px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;"></div>
+                    <div id="cycle-selector" style="display:none;padding:10px 14px;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;"></div>
 
-                    <!-- Spend Overview — real bill amount + breakdown -->
-                    <div class="dashboard-section">
-                        <div class="dashboard-section-title">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                            Spend Overview
+                    <!-- ============================================================
+                         EMPTY STATE (visible until body.has-audit-data is set)
+                         ============================================================ -->
+                    <div class="dash-empty">
+                        <div class="ico">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                         </div>
-                        <!-- Hero card: matches the client's actual bill this cycle -->
-                        <div class="kpi-card accent" style="padding:20px 24px;margin-bottom:12px;">
-                            <div class="kpi-card-label" style="font-size:12px;letter-spacing:0.08em;">Total Monthly Spend — Current Bill</div>
-                            <div id="kpi-total-spend" class="kpi-card-value" style="font-size:36px;font-weight:700;margin-top:6px;">$0.00</div>
-                            <div id="kpi-total-spend-sub" class="kpi-card-sub" style="font-size:11px;color:var(--accent);font-weight:600;margin-top:2px;">Current billing period</div>
-                            <div class="kpi-card-sub"><span id="kpi-avg-cost">$0.00</span> per line · <span id="kpi-line-count">0</span> active lines</div>
-                            <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                            </div>
-                        </div>
-                        <!-- Breakdown row: components that add up to the bill -->
-                        <div class="kpi-row" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
-                            <div class="kpi-card" style="padding:14px 16px;">
-                                <div class="kpi-card-label" style="font-size:10px;">Plan Charges</div>
-                                <div id="kpi-plan-charges" class="kpi-card-value" style="font-size:20px;">$0.00</div>
-                                <div class="kpi-card-sub">Rate plans</div>
-                            </div>
-                            <div class="kpi-card" style="padding:14px 16px;">
-                                <div class="kpi-card-label" style="font-size:10px;">Equipment</div>
-                                <div id="kpi-equipment" class="kpi-card-value" style="font-size:20px;">$0.00</div>
-                                <div class="kpi-card-sub">Device installments</div>
-                            </div>
-                            <div class="kpi-card" style="padding:14px 16px;">
-                                <div class="kpi-card-label" style="font-size:10px;">Surcharges</div>
-                                <div id="kpi-surcharges" class="kpi-card-value" style="font-size:20px;">$0.00</div>
-                                <div class="kpi-card-sub">Company fees</div>
-                            </div>
-                            <div class="kpi-card" style="padding:14px 16px;">
-                                <div class="kpi-card-label" style="font-size:10px;">Taxes</div>
-                                <div id="kpi-taxes" class="kpi-card-value" style="font-size:20px;">$0.00</div>
-                                <div class="kpi-card-sub">Govt fees &amp; taxes</div>
-                            </div>
-                            <div class="kpi-card" style="padding:14px 16px;">
-                                <div class="kpi-card-label" style="font-size:10px;">Activity / Credits</div>
-                                <div id="kpi-activity" class="kpi-card-value" style="font-size:20px;">$0.00</div>
-                                <div class="kpi-card-sub">Since last bill</div>
-                            </div>
-                        </div>
+                        <h2>No audit loaded yet</h2>
+                        <p>Drop a carrier file from the Upload tab to run an audit. Spend, fleet composition, and savings recommendations will populate here.</p>
                     </div>
 
-                    <!-- Inventory -->
-                    <div class="dashboard-section">
-                        <div class="dashboard-section-title">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                            Inventory
-                        </div>
-                        <div class="kpi-row">
-                            <div class="kpi-card info">
-                                <div class="kpi-card-label">Total Lines</div>
-                                <div id="kpi-total-lines" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Active wireless lines</div>
-                                <div class="kpi-card-icon" style="background:var(--info-dim);color:var(--info);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                </div>
-                            </div>
-                            <div class="kpi-card success">
-                                <div class="kpi-card-label">Smartphone Lines</div>
-                                <div id="kpi-smartphones" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Voice &amp; data devices</div>
-                                <div class="kpi-card-icon" style="background:var(--success-dim);color:var(--success);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                                </div>
-                            </div>
-                            <div class="kpi-card accent">
-                                <div class="kpi-card-label">Tablet / Hotspot</div>
-                                <div id="kpi-tablets" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Data-only devices</div>
-                                <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                                </div>
-                            </div>
-                            <div class="kpi-card warning">
-                                <div class="kpi-card-label">Wearable / IoT</div>
-                                <div id="kpi-wearables" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Watch, tracker, IoT</div>
-                                <div class="kpi-card-icon" style="background:var(--warning-dim);color:var(--warning);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><polyline points="12 9 12 12 13.5 13.5"/><path d="M16.51 17.35l-.35 3.83a2 2 0 0 1-2 1.82H9.83a2 2 0 0 1-2-1.82l-.35-3.83m.01-10.7l.35-3.83A2 2 0 0 1 9.83 1h4.35a2 2 0 0 1 2 1.82l.35 3.83"/></svg>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Upgrade Eligibility -->
-                        <div class="kpi-section-label" style="margin-top:24px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> UPGRADE ELIGIBILITY</div>
-                        <div class="kpi-row">
-                            <div class="kpi-card success">
-                                <div class="kpi-card-label">Eligible for Upgrade</div>
-                                <div id="kpi-upgrade-eligible" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Out-of-contract phones</div>
-                                <div class="kpi-card-icon" style="background:var(--success-dim);color:var(--success);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                </div>
-                            </div>
-                            <div class="kpi-card danger">
-                                <div class="kpi-card-label">In Contract / Installment</div>
-                                <div id="kpi-in-contract" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Active installment plans</div>
-                                <div class="kpi-card-icon" style="background:var(--danger-dim);color:var(--danger);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- ============================================================
+                         REDESIGNED DASHBOARD — hero + sidebar layout
+                         All legacy IDs are preserved so app.js keeps populating them.
+                         New IDs handle the new visual bits (sparkline, percent bars,
+                         stacked fleet bar, donut, recommendation list).
+                         ============================================================ -->
+                    <div class="dash-grid">
 
-                    <!-- Savings Opportunities -->
-                    <div class="dashboard-section">
-                        <div class="dashboard-section-title">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-                            Savings Opportunities
-                        </div>
-                        <div class="savings-grid">
-                            <!-- Tall side card: Total Savings -->
-                            <div class="kpi-card success tall">
-                                <div class="kpi-card-icon" style="background:var(--success-dim);color:var(--success);width:48px;height:48px;border-radius:var(--radius);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                      <!-- ========================================================
+                           LEFT COLUMN — hero, breakdown, fleet
+                           ======================================================== -->
+                      <div class="dash-col">
+
+                        <!-- HERO: total spend + sparkline + zero-usage callout -->
+                        <div class="dash-card hero">
+                            <div class="dash-eyebrow">Total spend · current cycle</div>
+                            <div class="dash-hero-row">
+                                <div>
+                                    <div id="kpi-total-spend" class="dash-hero-num">$0.00</div>
+                                    <div class="dash-hero-meta">
+                                        <span id="dash-hero-delta" class="dash-delta flat">—</span>
+                                        <span id="kpi-total-spend-sub" style="color:var(--text-secondary);">Current billing period</span>
+                                        <span style="color:var(--border);">·</span>
+                                        <span style="color:var(--text-secondary);"><span id="kpi-line-count">0</span> lines @ <span id="kpi-avg-cost">$0.00</span> avg</span>
+                                    </div>
                                 </div>
-                                <div class="kpi-card-label">Total Est. Monthly Savings</div>
-                                <div id="kpi-total-savings" class="kpi-card-value" style="color:var(--success);">$0.00</div>
-                                <div class="kpi-card-sub">Potential monthly reduction</div>
+                                <div class="dash-hero-spark"><canvas id="dash-spark"></canvas></div>
                             </div>
 
-                            <!-- Top row: 3 savings cards -->
-                            <div class="kpi-card warning">
-                                <div class="kpi-card-label">Zero Usage Lines</div>
-                                <div id="kpi-zero-lines" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Lines with no usage</div>
-                                <div class="kpi-card-icon" style="background:var(--warning-dim);color:var(--warning);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                            <!-- Zero-usage callout — surfaces the most actionable finding right under the hero -->
+                            <div class="dash-callout" id="dash-callout">
+                                <span class="ico">!</span>
+                                <div class="txt">
+                                    <strong id="dash-callout-headline">Reviewing audit…</strong>
+                                    <span id="dash-callout-detail"> Zero-usage lines and cancellable contracts will surface here.</span>
+                                </div>
+                                <button class="btn-cta" type="button" data-deep-link="zero-usage">
+                                    Review →
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- SPEND BREAKDOWN — 5 mini KPIs with proportion bars -->
+                        <div class="dash-card">
+                            <div class="dash-section-label">
+                                <span class="dash-eyebrow">Spend breakdown</span>
+                            </div>
+                            <div class="dash-breakdown">
+                                <div class="dash-mini accent" id="dash-mini-plan">
+                                    <div class="dash-mini-label">Plan charges</div>
+                                    <div id="kpi-plan-charges" class="dash-mini-val">$0.00</div>
+                                    <div class="dash-mini-bar"><div data-bar="plan"></div></div>
+                                    <div class="dash-mini-sub" data-pct="plan">—</div>
+                                </div>
+                                <div class="dash-mini">
+                                    <div class="dash-mini-label">Equipment</div>
+                                    <div id="kpi-equipment" class="dash-mini-val">$0.00</div>
+                                    <div class="dash-mini-bar"><div data-bar="equip"></div></div>
+                                    <div class="dash-mini-sub" data-pct="equip">—</div>
+                                </div>
+                                <div class="dash-mini">
+                                    <div class="dash-mini-label">Surcharges</div>
+                                    <div id="kpi-surcharges" class="dash-mini-val">$0.00</div>
+                                    <div class="dash-mini-bar"><div data-bar="surch"></div></div>
+                                    <div class="dash-mini-sub" data-pct="surch">—</div>
+                                </div>
+                                <div class="dash-mini">
+                                    <div class="dash-mini-label">Taxes</div>
+                                    <div id="kpi-taxes" class="dash-mini-val">$0.00</div>
+                                    <div class="dash-mini-bar"><div data-bar="tax"></div></div>
+                                    <div class="dash-mini-sub" data-pct="tax">—</div>
+                                </div>
+                                <div class="dash-mini">
+                                    <div class="dash-mini-label">Activity / credits</div>
+                                    <div id="kpi-activity" class="dash-mini-val">$0.00</div>
+                                    <div class="dash-mini-bar"><div data-bar="act"></div></div>
+                                    <div class="dash-mini-sub" data-pct="act">—</div>
                                 </div>
                             </div>
-                            <div class="kpi-card danger">
-                                <div class="kpi-card-label">Zero Usage Cost</div>
-                                <div id="kpi-zero-cost" class="kpi-card-value">$0.00</div>
-                                <div class="kpi-card-sub">Monthly spend on idle lines</div>
-                                <div class="kpi-card-icon" style="background:var(--danger-dim);color:var(--danger);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        </div>
+
+                        <!-- FLEET COMPOSITION — stacked bar + in-contract donut + upgrade CTA -->
+                        <div class="dash-card">
+                            <div class="dash-section-label">
+                                <span class="dash-eyebrow">Fleet composition</span>
+                                <span style="font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono','SF Mono',Menlo,monospace;"><span id="kpi-total-lines">0</span> lines</span>
+                            </div>
+
+                            <!-- Stacked bar -->
+                            <div class="dash-stack-bar" id="dash-fleet-stack">
+                                <div data-seg="phone" style="background:#5fa9d6;width:0%;"><span class="seg-val">—</span></div>
+                                <div data-seg="tab"   style="background:#7ec47e;width:0%;"><span class="seg-val">—</span></div>
+                                <div data-seg="wear"  style="background:#e8b96a;width:0%;"><span class="seg-val">—</span></div>
+                            </div>
+                            <div class="dash-stack-legend">
+                                <div class="item"><span class="swatch" style="background:#5fa9d6;"></span><span><strong id="kpi-smartphones">0</strong> Smartphones</span></div>
+                                <div class="item"><span class="swatch" style="background:#7ec47e;"></span><span><strong id="kpi-tablets">0</strong> Tablets / Hotspots</span></div>
+                                <div class="item"><span class="swatch" style="background:#e8b96a;"></span><span><strong id="kpi-wearables">0</strong> Wearables / IoT</span></div>
+                            </div>
+
+                            <!-- Bottom: in-contract donut + upgrade-eligible CTA -->
+                            <div class="dash-fleet-bottom">
+                                <div class="dash-donut-block">
+                                    <div class="dash-donut" id="dash-donut">
+                                        <div class="center">
+                                            <div id="dash-donut-pct" class="pct">0%</div>
+                                            <div class="lbl">IN-CONTRACT</div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="dash-eyebrow">In contract / installments</div>
+                                        <div style="font-size:22px;font-weight:700;line-height:1;margin-top:6px;font-variant-numeric:tabular-nums;"><span id="kpi-in-contract">0</span></div>
+                                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;">Active installment plans</div>
+                                    </div>
+                                </div>
+
+                                <div class="dash-cta">
+                                    <div>
+                                        <div class="dash-eyebrow" style="color:var(--accent);">Upgrade-eligible</div>
+                                        <div class="dash-cta-num"><span id="kpi-upgrade-eligible">0</span> phones</div>
+                                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;">Out-of-contract — review for renewal</div>
+                                    </div>
+                                    <button class="btn-cta" type="button" data-deep-link="usage-report" style="border-color:rgba(247,147,30,0.5);color:var(--accent);">Review →</button>
                                 </div>
                             </div>
 
-                            <!-- Bottom row: 3 savings cards -->
-                            <div class="kpi-card info">
-                                <div class="kpi-card-label">Rate Plan Optimizations</div>
-                                <div id="kpi-plan-opts" class="kpi-card-value">0</div>
-                                <div class="kpi-card-sub">Lines with better plan options</div>
-                                <div class="kpi-card-icon" style="background:var(--info-dim);color:var(--info);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                </div>
+                            <!-- Hidden chart canvases — JS still references them; we keep them mounted -->
+                            <div style="display:none;" aria-hidden="true">
+                                <canvas id="chart-spend-breakdown"></canvas>
+                                <canvas id="chart-device-distribution"></canvas>
                             </div>
-                            <div class="kpi-card accent">
-                                <div class="kpi-card-label">Plan Optimization Savings</div>
-                                <div id="kpi-plan-savings" class="kpi-card-value">$0.00</div>
-                                <div class="kpi-card-sub">From rate plan changes</div>
-                                <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                        </div>
+
+                      </div><!-- /.dash-col left -->
+
+                      <!-- ========================================================
+                           RIGHT COLUMN — recommendations panel + audit health
+                           ======================================================== -->
+                      <div class="dash-col">
+
+                        <div class="dash-card dash-rec-panel">
+                            <div class="dash-rec-header">
+                                <div>
+                                    <div style="font-size:15px;font-weight:600;color:var(--text);">Plan your client call</div>
+                                    <div class="dash-rec-sub">Ranked by monthly savings opportunity</div>
+                                </div>
+                                <div class="dash-rec-progress"><span id="dash-rec-done">0</span>/<span id="dash-rec-total">0</span></div>
+                            </div>
+
+                            <div class="dash-rec-list" id="dash-rec-list">
+                                <!-- Populated by JS — see populateDashboardRecommendations() in app.js -->
+                                <div style="padding:32px 0;text-align:center;color:var(--text-secondary);font-size:12.5px;">
+                                    Run an audit to surface recommendations.
                                 </div>
                             </div>
 
-                            <!-- Tall side card: Annual Projection -->
-                            <div class="kpi-card accent tall" style="grid-row:1/3;grid-column:4;">
-                                <div class="kpi-card-icon" style="background:var(--accent-dim);color:var(--accent);width:48px;height:48px;border-radius:var(--radius);">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <div class="dash-rec-footer">
+                                <div>
+                                    <div class="dash-eyebrow">Total monthly opportunity</div>
+                                    <div class="total-num">
+                                        <span id="kpi-total-savings">$0.00</span>
+                                        <small> / mo</small>
+                                    </div>
                                 </div>
-                                <div class="kpi-card-label">Annual Savings Projection</div>
-                                <div id="kpi-annual-savings" class="kpi-card-value" style="color:var(--accent);">$0.00</div>
-                                <div class="kpi-card-sub">Projected 12-month savings</div>
+                                <div style="text-align:right;">
+                                    <div class="dash-eyebrow">Annual</div>
+                                    <div style="font-size:18px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;margin-top:4px;">
+                                        <span id="kpi-annual-savings">$0.00</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Chart Row -->
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                        <div class="chart-container">
-                            <canvas id="chart-spend-breakdown"></canvas>
+                        <!-- AUDIT HEALTH — compact -->
+                        <div class="dash-card" id="dash-health-card" style="padding:18px 20px;">
+                            <div class="dash-section-label">
+                                <span class="dash-eyebrow">Audit health</span>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span style="color:var(--text-secondary);">Zero-usage lines</span>
+                                    <span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;">
+                                        <span id="kpi-zero-lines">0</span>
+                                        <span style="color:var(--text-secondary);font-weight:400;"> · </span>
+                                        <span id="kpi-zero-cost" style="color:var(--danger);">$0.00</span>/mo
+                                    </span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span style="color:var(--text-secondary);">Rate-plan optimizations</span>
+                                    <span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;">
+                                        <span id="kpi-plan-opts">0</span>
+                                        <span style="color:var(--text-secondary);font-weight:400;"> · </span>
+                                        <span id="kpi-plan-savings" style="color:var(--success);">$0.00</span>/mo
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="chart-container">
-                            <canvas id="chart-device-distribution"></canvas>
-                        </div>
-                    </div>
+
+                      </div><!-- /.dash-col right -->
+
+                    </div><!-- /.dash-grid -->
                 </div>
 
                 <!-- =============================================
                      TAB: ZERO USAGE
                      ============================================= -->
+
+                <!-- =============================================
+                     TAB: ZERO USAGE
+                     ============================================= -->
                 <div id="tab-zero-usage" class="tab-panel">
+                    <!-- Redesign: summary band -->
+                    <div class="tab-band">
+                        <div class="tab-band-head">
+                            <div>
+                                <div class="tab-band-title">Zero Usage</div>
+                                <h2 class="tab-band-headline">Lines billed without a single <em>call, text, or megabyte</em> this cycle.</h2>
+                                <p class="tab-band-sub">Sorted by severity. Out-of-contract lines are immediately suspendable; in-contract lines surface the contract end-date so you can stage cancellations.</p>
+                            </div>
+                            <div class="tab-band-stats">
+                                <div class="tab-band-stat">
+                                    <div class="num danger" id="zu-band-count">—</div>
+                                    <div class="lbl">Zero-usage lines</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num warn" id="zu-band-mrc">$—</div>
+                                    <div class="lbl">Wasted MRC / mo</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num success" id="zu-band-savings">$—</div>
+                                    <div class="lbl">Recoverable / yr</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="zu-dist">
+                            <div class="zu-dist-cell high">
+                                <div class="top"><span class="lbl">Suspend now</span><span class="val" id="zu-dist-high">0</span></div>
+                                <div class="bar"><div id="zu-bar-high" style="width:0%"></div></div>
+                                <div class="sub">Out of contract · zero usage</div>
+                            </div>
+                            <div class="zu-dist-cell med">
+                                <div class="top"><span class="lbl">Stage</span><span class="val" id="zu-dist-med">0</span></div>
+                                <div class="bar"><div id="zu-bar-med" style="width:0%"></div></div>
+                                <div class="sub">Contract ends &lt; 90 days</div>
+                            </div>
+                            <div class="zu-dist-cell low">
+                                <div class="top"><span class="lbl">Hold</span><span class="val" id="zu-dist-low">0</span></div>
+                                <div class="bar"><div id="zu-bar-low" style="width:0%"></div></div>
+                                <div class="sub">In contract · review later</div>
+                            </div>
+                            <div class="zu-dist-cell ok">
+                                <div class="top"><span class="lbl">ETF risk</span><span class="val" id="zu-dist-etf">$0</span></div>
+                                <div class="bar"><div id="zu-bar-etf" style="width:0%"></div></div>
+                                <div class="sub">Penalty if cancelled now</div>
+                            </div>
+                        </div>
+                        <div class="tab-callout" id="zu-callout" style="margin-bottom:0">
+                            <div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
+                            <div class="txt"><strong id="zu-callout-headline">Run an audit to surface zero-usage lines.</strong> <span id="zu-callout-detail">Severity is computed from contract status, days idle, and MRC weight.</span></div>
+                            <div class="actions">
+                                <button class="btn-ghost" id="zu-callout-export">Export Suspend List</button>
+                                <button class="btn-primary" id="zu-callout-bulk">Mark All for Suspend</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="table-controls">
                         <div class="table-search">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -2973,6 +3865,64 @@
                      TAB: USAGE REPORT
                      ============================================= -->
                 <div id="tab-usage-report" class="tab-panel">
+                    <!-- Redesign: summary band -->
+                    <div class="tab-band">
+                        <div class="tab-band-head">
+                            <div>
+                                <div class="tab-band-title">Usage Report</div>
+                                <h2 class="tab-band-headline">Distribution of consumption across <em>every line in the fleet</em>.</h2>
+                                <p class="tab-band-sub">The histogram bins lines by data usage. Zero-usage and over-plan lines surface as flagged rows below — sortable by any column.</p>
+                            </div>
+                            <div class="tab-band-stats">
+                                <div class="tab-band-stat">
+                                    <div class="num" id="ur-band-total">—</div>
+                                    <div class="lbl">Total lines</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num" id="ur-band-data">—</div>
+                                    <div class="lbl">GB consumed</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num warn" id="ur-band-overage">—</div>
+                                    <div class="lbl">Over plan</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num danger" id="ur-band-zero">—</div>
+                                    <div class="lbl">Zero usage</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ur-hist-wrap">
+                            <div class="ur-hist" id="ur-hist">
+                                <div class="col zero" style="height:18%"></div>
+                                <div class="col" style="height:42%"></div>
+                                <div class="col" style="height:78%"></div>
+                                <div class="col" style="height:96%"></div>
+                                <div class="col" style="height:88%"></div>
+                                <div class="col" style="height:62%"></div>
+                                <div class="col" style="height:48%"></div>
+                                <div class="col" style="height:36%"></div>
+                                <div class="col" style="height:28%"></div>
+                                <div class="col" style="height:20%"></div>
+                                <div class="col" style="height:14%"></div>
+                                <div class="col" style="height:10%"></div>
+                                <div class="col" style="height:8%"></div>
+                                <div class="col" style="height:6%"></div>
+                                <div class="col" style="height:4%"></div>
+                            </div>
+                            <div class="ur-hist-axis">
+                                <span>0 MB</span><span>1 GB</span><span>5 GB</span><span>10 GB</span><span>25+ GB</span>
+                            </div>
+                            <div class="ur-percentiles">
+                                <div class="ur-percentile"><span class="p">P50</span><span class="v" id="ur-p50">—</span></div>
+                                <div class="ur-percentile"><span class="p">P75</span><span class="v" id="ur-p75">—</span></div>
+                                <div class="ur-percentile"><span class="p">P90</span><span class="v" id="ur-p90">—</span></div>
+                                <div class="ur-percentile"><span class="p">P99</span><span class="v" id="ur-p99">—</span></div>
+                                <div class="ur-percentile"><span class="p">Mean</span><span class="v" id="ur-mean">—</span></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="table-controls">
                         <div class="table-search">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -3034,6 +3984,53 @@
                      TAB: RATE PLANS
                      ============================================= -->
                 <div id="tab-rate-plans" class="tab-panel">
+                    <!-- Redesign: summary band -->
+                    <div class="tab-band">
+                        <div class="tab-band-head">
+                            <div>
+                                <div class="tab-band-title">Rate Plans</div>
+                                <h2 class="tab-band-headline">Composition of plans across the fleet — find <em>over-priced and under-utilized</em> tiers.</h2>
+                                <p class="tab-band-sub">The stacked bar shows what share of lines sit on each plan. Hover a segment to see line count and total cost. Match log on the right shows what the matcher learned.</p>
+                            </div>
+                            <div class="tab-band-stats">
+                                <div class="tab-band-stat">
+                                    <div class="num" id="rp-band-plans">—</div>
+                                    <div class="lbl">Distinct plans</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num" id="rp-band-avg">$—</div>
+                                    <div class="lbl">Avg cost / line</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num success" id="rp-band-match">—%</div>
+                                    <div class="lbl">DB match rate</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="rp-comp">
+                            <div>
+                                <div class="rp-stack" id="rp-stack">
+                                    <div style="background:#6366f1;width:42%">42%</div>
+                                    <div style="background:#22c55e;width:24%">24%</div>
+                                    <div style="background:#f7931e;width:16%">16%</div>
+                                    <div style="background:#ef4444;width:10%">10%</div>
+                                    <div style="background:#a78bfa;width:8%">8%</div>
+                                </div>
+                                <div class="rp-legend" id="rp-legend">
+                                    <div class="rp-legend-item"><span class="sw" style="background:#6366f1"></span>Unlimited Plus <span class="ct">(126)</span></div>
+                                    <div class="rp-legend-item"><span class="sw" style="background:#22c55e"></span>Pooled 5GB <span class="ct">(72)</span></div>
+                                    <div class="rp-legend-item"><span class="sw" style="background:#f7931e"></span>Smart Family <span class="ct">(48)</span></div>
+                                    <div class="rp-legend-item"><span class="sw" style="background:#ef4444"></span>Legacy 2GB <span class="ct">(30)</span></div>
+                                    <div class="rp-legend-item"><span class="sw" style="background:#a78bfa"></span>Other <span class="ct">(24)</span></div>
+                                </div>
+                            </div>
+                            <div class="tab-callout info" style="margin:0">
+                                <div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div>
+                                <div class="txt"><strong id="rp-insight-headline">Plan diversity check.</strong> <span id="rp-insight-detail">Consolidating to 2-3 plans typically cuts admin overhead and unlocks volume pricing.</span></div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="rateplan-layout">
                         <!-- Rate Plan Summary Table -->
                         <div class="rateplan-section">
@@ -3102,7 +4099,37 @@
                      TAB: PLAN COMPARISON
                      ============================================= -->
                 <div id="tab-plan-comparison" class="tab-panel">
-                    <!-- Savings Banner -->
+                    <!-- Redesign: savings panel (replaces the legacy banner via body.tabs-redesigned CSS) -->
+                    <div class="pc-savings">
+                        <div class="pc-savings-cell">
+                            <div class="eyebrow">Annual Savings if Adopted</div>
+                            <div class="big" id="pc-big-annual">$0</div>
+                            <div class="sub"><span id="pc-big-monthly">$0</span> / month · across <span id="pc-big-lines">0</span> lines</div>
+                        </div>
+                        <div class="pc-savings-cell">
+                            <div class="eyebrow">Current → Proposed</div>
+                            <div class="arrow-row">
+                                <span class="from" id="pc-cur-mrc">$0/mo</span>
+                                <span style="color:var(--text-muted)">→</span>
+                                <span class="to" id="pc-prop-mrc">$0/mo</span>
+                            </div>
+                            <div class="sub" id="pc-pct-cut">— reduction</div>
+                        </div>
+                        <div class="pc-savings-cell">
+                            <div class="eyebrow">Coverage</div>
+                            <div class="med"><span id="pc-coverage-pct">0</span>%</div>
+                            <div class="sub"><span id="pc-coverage-lines">0 of 0</span> lines have proposals</div>
+                        </div>
+                        <div class="pc-savings-cell" style="text-align:right">
+                            <div class="eyebrow">View as</div>
+                            <div class="toggle" role="tablist">
+                                <button type="button" class="active" data-pc-view="monthly">Monthly</button>
+                                <button type="button" data-pc-view="annual">Annual</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Original savings banner (hidden via CSS body.tabs-redesigned) -->
                     <div id="plan-comp-savings-banner" class="plan-comp-banner">
                         <div class="plan-comp-banner-left">
                             <div class="plan-comp-banner-label">Proposed Monthly Savings</div>
@@ -3174,6 +4201,39 @@
                      TAB: EXPORTS
                      ============================================= -->
                 <div id="tab-exports" class="tab-panel">
+                    <!-- Redesign: summary band -->
+                    <div class="tab-band">
+                        <div class="tab-band-head">
+                            <div>
+                                <div class="tab-band-title">Exports</div>
+                                <h2 class="tab-band-headline">Package this audit for the <em>client, the carrier, or your records</em>.</h2>
+                                <p class="tab-band-sub">All exports include the data shown in the dashboard. Run an audit first to enable downloads.</p>
+                            </div>
+                        </div>
+                        <div class="exp-band">
+                            <div class="exp-band-card">
+                                <div class="lbl">Audit run</div>
+                                <div class="val" id="exp-run-date">—</div>
+                                <div class="sub" id="exp-run-client">No client loaded</div>
+                            </div>
+                            <div class="exp-band-card">
+                                <div class="lbl">Lines analyzed</div>
+                                <div class="val" id="exp-lines">—</div>
+                                <div class="sub" id="exp-carriers">— carriers</div>
+                            </div>
+                            <div class="exp-band-card">
+                                <div class="lbl">Findings</div>
+                                <div class="val" id="exp-findings">—</div>
+                                <div class="sub">Zero-usage + plan changes</div>
+                            </div>
+                            <div class="exp-band-card">
+                                <div class="lbl">Recoverable / yr</div>
+                                <div class="val" style="color:#22c55e" id="exp-savings">$—</div>
+                                <div class="sub">If recommendations adopted</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="exports-grid">
                         <!-- PDF Report -->
                         <div class="export-card">
@@ -3262,6 +4322,30 @@
 
                 <!-- TAB: DISCREPANCIES (available in both views) -->
                 <div id="tab-discrepancies" class="tab-panel">
+                    <!-- Redesign: summary band -->
+                    <div class="tab-band">
+                        <div class="tab-band-head">
+                            <div>
+                                <div class="tab-band-title">Discrepancies</div>
+                                <h2 class="tab-band-headline">Conflicts between <em>carrier bill, inventory, and audit</em> — sorted for resolution.</h2>
+                                <p class="tab-band-sub">Each item shows which sources disagree, the field affected, and the evidence. Resolve to acknowledge or mark for follow-up.</p>
+                            </div>
+                            <div class="tab-band-stats">
+                                <div class="tab-band-stat">
+                                    <div class="num danger" id="disc-band-open">—</div>
+                                    <div class="lbl">Open</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num warn" id="disc-band-review">—</div>
+                                    <div class="lbl">In review</div>
+                                </div>
+                                <div class="tab-band-stat">
+                                    <div class="num success" id="disc-band-resolved">—</div>
+                                    <div class="lbl">Resolved</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div id="discrepancy-content"></div>
                 </div>
 
@@ -3906,24 +4990,27 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260421-trend"></script>
-    <script src="js/parsers/att-csv.js?v=20260421-trend"></script>
-    <script src="js/parsers/verizon-txt.js"></script>
-    <script src="js/parsers/tmobile-csv.js"></script>
-    <script src="js/parsers/tangoe-csv.js"></script>
-    <script src="js/parsers/bill-pdf.js"></script>
-    <script src="js/analyzers/zero-usage.js"></script>
-    <script src="js/analyzers/usage-report.js"></script>
-    <script src="js/analyzers/rate-plan.js"></script>
-    <script src="js/analyzers/rate-plan-logger.js"></script>
-    <script src="js/analyzers/plan-comparison.js"></script>
-    <script src="js/analyzers/cycle-trend.js?v=20260421-trend"></script>
-    <script src="js/reporters/pdf-report.js"></script>
-    <script src="js/reporters/excel-report.js"></script>
-    <script src="js/views/sheet-view.js?v=20260421-live"></script>
-    <script src="js/views/discrepancy.js"></script>
-    <script src="js/log/audit-log.js"></script>
-    <script src="js/api/agent-api.js"></script>
+    <script src="js/app.js?v=20260430-tabs-redesign"></script>
+    <!-- Production audit modules — these MUST load or runAudit() breaks. -->
+    <script src="js/parsers/att-csv.js?v=20260430-tabs-redesign"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260430-tabs-redesign"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260430-tabs-redesign"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260430-tabs-redesign"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260430-tabs-redesign"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260430-tabs-redesign"></script>
+    <script src="js/analyzers/usage-report.js?v=20260430-tabs-redesign"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260430-tabs-redesign"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260430-tabs-redesign"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260430-tabs-redesign"></script>
+    <!-- cycle-trend.js is referenced by the new app.js but is feature-detected
+         (window.CycleTrendAnalyzer && ...) so a missing file is non-fatal. -->
+    <script src="js/reporters/pdf-report.js?v=20260430-tabs-redesign"></script>
+    <script src="js/reporters/excel-report.js?v=20260430-tabs-redesign"></script>
+    <script src="js/views/sheet-view.js?v=20260430-tabs-redesign"></script>
+    <script src="js/views/discrepancy.js?v=20260430-tabs-redesign"></script>
+    <script src="js/log/audit-log.js?v=20260430-tabs-redesign"></script>
+    <script src="js/api/agent-api.js?v=20260430-tabs-redesign"></script>
+
 
 </body>
 </html>
