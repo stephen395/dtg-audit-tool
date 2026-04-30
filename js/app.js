@@ -245,6 +245,15 @@
       DTG.updateProcessingStatus('Analyzing rate plans...');
 
       const ratePlans = window.RatePlanAnalyzer.analyze(profiles);
+
+      // Add-on features (insurance, international, hotspot, cloud, etc.) —
+      // pulled from the carrier's per-line charge detail. Reports per-category
+      // line count and monthly cost so Stephen can spot bloat at a glance.
+      const features = (window.FeatureAnalyzer && window.FeatureAnalyzer.analyze)
+        ? window.FeatureAnalyzer.analyze(profiles, meta, carrier)
+        : { features: [], categories: [], totalMonthly: 0, featureCount: 0, uniqueLineCount: 0 };
+      console.log('[AUDIT] Features:', features.featureCount, 'distinct,', features.uniqueLineCount, 'lines,',
+                   '$' + features.totalMonthly.toFixed(2), '/mo');
       console.log('[AUDIT] Rate plans:', ratePlans.summary.uniquePlans, 'unique plans');
 
       // Per-cycle snapshots + month-over-month deltas. Powers the latest-cycle
@@ -348,7 +357,7 @@
       const auditData = {
         carrier, clientName,
         billingPeriod: meta.billingCycles ? meta.billingCycles.join(' → ') : (meta.billingPeriods ? meta.billingPeriods.join(' → ') : ''),
-        profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, billData, trend,
+        profiles, meta, zeroUsageResults, zeroUsageSummary, usageReport, ratePlans, features, billData, trend,
         // Which cycle the dashboard is currently showing. Defaults to the latest
         // cycle; user can flip via the cycle selector in the dashboard header.
         activeCycle: trend && trend.snapshots && trend.snapshots.length > 0
@@ -371,6 +380,7 @@
       populateZeroUsageTable(auditData);
       populateUsageTable(auditData);
       populateRatePlanTable(auditData);
+      populateFeaturesPanel(auditData);
       populatePlanComparison(auditData);
       populateTrendTab(auditData);
       wireExportButtons(auditData);
@@ -1771,6 +1781,85 @@
   }
 
   // ═══════════════════════════════════════════════════════
+  // ADD-ON FEATURES PANEL — renders the per-category and per-feature
+  // breakdown that lives in the Rate Plans tab. Reads data.features which
+  // FeatureAnalyzer fills in from chargesDetail (Verizon) or billingLines
+  // (AT&T). Empty/missing features → empty-state message, no crash.
+  // ═══════════════════════════════════════════════════════
+  function populateFeaturesPanel(data) {
+    const section   = document.getElementById('features-section');
+    const body      = document.getElementById('features-body');
+    const emptyEl   = document.getElementById('features-empty');
+    const metaEl    = document.getElementById('features-meta');
+    if (!section || !body) return;
+
+    const f = data.features || { features: [], categories: [], totalMonthly: 0, featureCount: 0, uniqueLineCount: 0 };
+
+    // Hide entire section for carriers we don't yet support (T-Mobile, Tangoe).
+    if (data.carrier !== 'verizon' && data.carrier !== 'att') {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+
+    if (!f.featureCount) {
+      body.style.display = 'none';
+      if (emptyEl) emptyEl.style.display = '';
+      if (metaEl) metaEl.textContent = '0 features';
+      return;
+    }
+    body.style.display = '';
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    if (metaEl) {
+      metaEl.textContent = f.featureCount + ' feature' + (f.featureCount === 1 ? '' : 's') +
+                           ' · ' + fmtMoney(f.totalMonthly) + '/mo';
+    }
+
+    // Headline strip
+    setText('features-total-monthly',  fmtMoney(f.totalMonthly));
+    setText('features-total-annual',   fmtMoney(f.annualCost));
+    setText('features-line-count',     f.uniqueLineCount);
+    setText('features-distinct-count', f.featureCount);
+
+    // Category roll-up table
+    const catBody = document.getElementById('features-cat-body');
+    if (catBody) {
+      catBody.innerHTML = (f.categories || []).map(c => {
+        // Highlight uncategorised so Stephen sees that the taxonomy needs a new bucket.
+        const isUncat = c.category === 'Other / Uncategorized';
+        return '<tr style="border-bottom:1px solid var(--border);' +
+               (isUncat ? 'background:rgba(247,147,30,0.06);' : '') + '">' +
+               '<td style="padding:8px 10px;">' +
+                 (isUncat
+                    ? '<span style="color:#f59e0b;font-weight:600;">' + escapeHtml(c.category) + '</span>'
+                    : escapeHtml(c.category)) +
+               '</td>' +
+               '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + c.distinctFeatures + '</td>' +
+               '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + c.lineCount + '</td>' +
+               '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(c.totalMonthly) + '</td>' +
+               '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + fmtMoney(c.annualCost) + '</td>' +
+               '</tr>';
+      }).join('');
+    }
+
+    // Per-feature drill-down table
+    const detailBody = document.getElementById('features-detail-body');
+    if (detailBody) {
+      detailBody.innerHTML = (f.features || []).map(fe => {
+        const isUncat = fe.category === 'Other / Uncategorized';
+        return '<tr style="border-bottom:1px solid var(--border);">' +
+               '<td style="padding:6px 10px;color:' + (isUncat ? '#f59e0b' : 'var(--text-secondary)') + ';font-size:11px;">' + escapeHtml(fe.category) + '</td>' +
+               '<td style="padding:6px 10px;">' + escapeHtml(fe.description) + '</td>' +
+               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + fe.lineCount + '</td>' +
+               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + fmtMoney(fe.avgPerLine) + '</td>' +
+               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(fe.totalMonthly) + '</td>' +
+               '</tr>';
+      }).join('');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
   // MULTI-BAN SUPPORT — selector + breakout panel + filter.
   // Verizon and AT&T both produce meta.byBan keyed by sub-account number.
   // The dashboard scope dropdown lets the auditor pick "All BANs" or a single
@@ -1956,6 +2045,9 @@
     const zeroUsageSummary = window.ZeroUsageAnalyzer.summarize(zeroUsageResults);
     const usageReport = window.UsageReportAnalyzer.analyze(filteredProfiles);
     const ratePlans = window.RatePlanAnalyzer.analyze(filteredProfiles);
+    const features = (window.FeatureAnalyzer && window.FeatureAnalyzer.analyze)
+      ? window.FeatureAnalyzer.analyze(filteredProfiles, filteredMeta, carrier)
+      : { features: [], categories: [], totalMonthly: 0, featureCount: 0, uniqueLineCount: 0 };
     const trend = (window.CycleTrendAnalyzer && window.CycleTrendAnalyzer.analyze)
       ? window.CycleTrendAnalyzer.analyze(filteredProfiles, filteredMeta)
       : { snapshots: [], deltas: [], cycleCount: 0, byCycle: {} };
@@ -1967,6 +2059,7 @@
     data.zeroUsageSummary = zeroUsageSummary;
     data.usageReport = usageReport;
     data.ratePlans = ratePlans;
+    data.features = features;
     data.trend = trend;
     // Reset active cycle to the latest of the filtered scope (avoids dangling
     // references to a cycle that no longer has data).
@@ -1980,6 +2073,7 @@
     if (typeof populateZeroUsageTable === 'function') populateZeroUsageTable(data);
     if (typeof populateUsageTable === 'function') populateUsageTable(data);
     if (typeof populateRatePlanTable === 'function') populateRatePlanTable(data);
+    if (typeof populateFeaturesPanel === 'function') populateFeaturesPanel(data);
     if (typeof populatePlanComparison === 'function') populatePlanComparison(data);
     if (typeof populateTrendTab === 'function') populateTrendTab(data);
 

@@ -503,6 +503,11 @@ window.VerizonParser = (function () {
         accountName: (accountSummaries[0] && accountSummaries[0].billName) || '',
         // Master BAN = the chunk before the dash, for display purposes.
         masterBan: (Array.from(activeBans)[0] || '').split('-')[0] || '',
+        // Raw chargesDetail rows kept on meta so the features analyzer can
+        // re-walk them looking for add-ons (insurance, international, etc).
+        // Cycle filtering happens in features.js so it sees the latest cycle
+        // only and reports current monthly cost (not 3-month sum).
+        chargesDetail: chargesItems || [],
       }
     };
   }

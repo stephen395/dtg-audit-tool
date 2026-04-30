@@ -439,6 +439,9 @@ window.ATTParser = (function () {
     }
     meta.byBan = byBan;
     meta.activeBans = Object.keys(byBan).filter(b => !byBan[b].dead);
+    // Raw billing rows so the features analyzer can scan for add-ons (insurance,
+    // international, hotspot, etc) without re-parsing the CSV.
+    meta.billingLines = billingLines;
 
     return { profiles, meta };
   }

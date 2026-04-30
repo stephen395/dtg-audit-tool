@@ -4290,6 +4290,78 @@
                         </div>
                     </div>
 
+                    <!-- ADD-ON FEATURES — insurance, international, hotspot, cloud, etc.
+                         Pulled from the carrier's per-line charge detail (Verizon
+                         chargesDetail or AT&T billing rows). Shows category-level
+                         roll-up with line counts and monthly cost; expandable per
+                         feature row to see the underlying line items. -->
+                    <div class="rateplan-section" id="features-section" style="margin-bottom:16px;">
+                        <div class="rateplan-section-header">
+                            <h3>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>
+                                Add-on Features
+                            </h3>
+                            <div id="features-meta" class="table-count">— features</div>
+                        </div>
+                        <div id="features-empty" style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;display:none;">
+                            No add-on features detected for the current scope.
+                        </div>
+                        <div id="features-body">
+                            <!-- Headline strip -->
+                            <div id="features-headline" style="display:flex;flex-wrap:wrap;gap:12px;padding:10px 0 14px 0;">
+                                <div class="feature-stat" style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                    <div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Total monthly</div>
+                                    <div id="features-total-monthly" style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px;">$0.00</div>
+                                </div>
+                                <div class="feature-stat" style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                    <div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Annual</div>
+                                    <div id="features-total-annual" style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px;">$0.00</div>
+                                </div>
+                                <div class="feature-stat" style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                    <div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Lines with add-ons</div>
+                                    <div id="features-line-count" style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px;">0</div>
+                                </div>
+                                <div class="feature-stat" style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                    <div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Distinct features</div>
+                                    <div id="features-distinct-count" style="font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px;">0</div>
+                                </div>
+                            </div>
+                            <!-- Categories table -->
+                            <div style="overflow-x:auto;">
+                                <table id="features-cat-table" style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                                    <thead>
+                                        <tr style="border-bottom:1px solid var(--border);color:var(--text-secondary);text-transform:uppercase;font-size:10.5px;letter-spacing:0.05em;">
+                                            <th style="padding:8px 10px;text-align:left;">Category</th>
+                                            <th style="padding:8px 10px;text-align:right;">Distinct features</th>
+                                            <th style="padding:8px 10px;text-align:right;">Lines</th>
+                                            <th style="padding:8px 10px;text-align:right;">Monthly</th>
+                                            <th style="padding:8px 10px;text-align:right;">Annual</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="features-cat-body"></tbody>
+                                </table>
+                            </div>
+                            <!-- Per-feature drill-down — collapsible -->
+                            <details id="features-detail" style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Per-feature breakdown</summary>
+                                <div style="overflow-x:auto;margin-top:10px;">
+                                    <table id="features-detail-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                                        <thead>
+                                            <tr style="border-bottom:1px solid var(--border);color:var(--text-secondary);text-transform:uppercase;font-size:10px;letter-spacing:0.05em;">
+                                                <th style="padding:6px 10px;text-align:left;">Category</th>
+                                                <th style="padding:6px 10px;text-align:left;">Feature</th>
+                                                <th style="padding:6px 10px;text-align:right;">Lines</th>
+                                                <th style="padding:6px 10px;text-align:right;">Avg / line</th>
+                                                <th style="padding:6px 10px;text-align:right;">Monthly</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="features-detail-body"></tbody>
+                                    </table>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
                     <div class="rateplan-layout">
                         <!-- Rate Plan Summary Table -->
                         <div class="rateplan-section">
@@ -5396,6 +5468,7 @@
     <script src="js/analyzers/zero-usage.js?v=20260430-vz-zip"></script>
     <script src="js/analyzers/usage-report.js?v=20260430-vz-zip"></script>
     <script src="js/analyzers/rate-plan.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/features.js?v=20260430-vz-zip"></script>
     <script src="js/analyzers/rate-plan-logger.js?v=20260430-vz-zip"></script>
     <script src="js/analyzers/plan-comparison.js?v=20260430-vz-zip"></script>
     <script src="js/analyzers/cycle-trend.js?v=20260430-vz-zip"></script>
