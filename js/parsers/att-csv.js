@@ -139,6 +139,7 @@ window.ATTParser = (function () {
 
       lines.push({
         wireless,
+        ban: cleanCol(row[colMap.account_number]),
         userName: cleanCol(row[colMap.user_name]),
         rateCode: cleanCol(row[colMap.rate_code]),
         ratePlan: cleanCol(row[colMap.rate_plan]),
@@ -334,8 +335,13 @@ window.ATTParser = (function () {
       const doNotCancel = userName.toUpperCase().includes('DO NOT CANCEL') ||
                           userName.toUpperCase().includes('CAMERA');
 
+      // BAN — pick the latest cycle's BAN if the line was billed across more
+      // than one (rare but possible on number ports).
+      const lineBan = (bRows[bRows.length - 1] || {}).ban || '';
+
       profiles[wn] = {
         wireless: wn,
+        ban: lineBan,
         userName,
         status: contract.status || 'Active',
         deviceType,
@@ -380,6 +386,59 @@ window.ATTParser = (function () {
         doNotCancel,
       };
     }
+
+    // ── Per-BAN summary (mirrors verizon-txt.js so the dashboard BAN selector
+    //     and By-BAN breakout panel work the same for AT&T) ─────────────────
+    // For each BAN that appears in the billing CSV: count lines, sum spend,
+    // sum zero-usage. Latest cycle for AT&T is the alphabetically-last cycle
+    // string (cycleDate is "M/D/YYYY" — sorts lexically wrong, so pick the
+    // latest by Date object).
+    const cycleStrs = Object.keys(meta.billByCycle || {});
+    const cyclesByDate = cycleStrs
+      .map(c => ({ c, t: new Date(c).getTime() }))
+      .filter(x => !isNaN(x.t))
+      .sort((a, b) => a.t - b.t)
+      .map(x => x.c);
+    const latestCycle = cyclesByDate[cyclesByDate.length - 1] || cycleStrs[cycleStrs.length - 1] || null;
+
+    const byBan = {};
+    for (const p of Object.values(profiles)) {
+      const ban = p.ban || meta.accountNumber || '';
+      if (!ban) continue;
+      if (!byBan[ban]) {
+        byBan[ban] = {
+          ban,
+          billName: meta.accountName || '',
+          lineCount: 0,
+          latestLineCount: 0,
+          zeroUsageCount: 0,
+          billLatest: 0,
+          billLatestPlan: 0,
+          billLatestEquipment: 0,
+          billLatestTaxes: 0,
+          billLatestFees: 0,
+          totalSpend90d: 0,
+          cycles: {},
+          dead: true,
+        };
+      }
+      byBan[ban].lineCount++;
+      byBan[ban].totalSpend90d += Object.values(p.billingCycles || {})
+        .reduce((s, c) => s + (c.totalCurrent || 0), 0);
+      if (p.zeroUsage) byBan[ban].zeroUsageCount++;
+      if (latestCycle && p.billingCycles && p.billingCycles[latestCycle]) {
+        byBan[ban].latestLineCount++;
+        const cyc = p.billingCycles[latestCycle];
+        byBan[ban].billLatest          += cyc.totalCurrent || 0;
+        byBan[ban].billLatestPlan      += cyc.monthlyCharges || 0;
+        byBan[ban].billLatestEquipment += cyc.equipmentCharges || 0;
+        byBan[ban].billLatestTaxes     += cyc.taxes || 0;
+        byBan[ban].billLatestFees      += cyc.fees || 0;
+        if ((cyc.totalCurrent || 0) > 0) byBan[ban].dead = false;
+      }
+    }
+    meta.byBan = byBan;
+    meta.activeBans = Object.keys(byBan).filter(b => !byBan[b].dead);
 
     return { profiles, meta };
   }

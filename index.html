@@ -15,6 +15,8 @@
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <!-- PapaParse -->
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <!-- JSZip — used to crack open MyVerizon "Raw Data Download" .zip files in-browser. -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <!-- jsPDF -->
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
     <!-- jsPDF-AutoTable -->
@@ -3457,16 +3459,16 @@
                         <div class="file-types-header">Expected File Types</div>
                         <ul class="file-type-list">
                             <li>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                Usage Detail TXT / CSV
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                                MyVerizon zip — drag 1–3 monthly bills
                             </li>
                             <li>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                Contract / Upgrade TXT
+                                Multi-account auto-detected
                             </li>
                             <li>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                Bill Summary PDF
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                Optional: Upgrade Eligibility CSV
                             </li>
                         </ul>
                         <div class="select-arrow">
@@ -3546,14 +3548,14 @@
                     <div class="upload-zones">
                         <!-- Zone 1: Usage/Charges (REQUIRED) -->
                         <div id="zone-usage" class="upload-zone" data-zone="usage" data-required="true">
-                            <input type="file" id="file-usage" accept=".csv,.txt,.CSV,.TXT" style="display:none">
+                            <input type="file" id="file-usage" accept=".csv,.txt,.CSV,.TXT,.zip,.ZIP" multiple style="display:none">
                             <div class="upload-zone-top">
                                 <div class="upload-zone-icon required">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                 </div>
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
-                                        Usage / Charges Report
+                                        <span class="upload-zone-title-text">Usage / Charges Report</span>
                                         <span class="badge optional">Required (or use PDF)</span>
                                     </div>
                                     <div class="upload-zone-desc">Primary billing and usage data. Accepts CSV or TXT format. Tangoe TCC exports auto-detected.</div>
@@ -3569,6 +3571,8 @@
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                         </button>
                                     </div>
+                                    <!-- Multi-file list for Verizon (zips). Hidden until .has-multi class is added. -->
+                                    <div class="file-multi-list" style="display:none;flex-direction:column;gap:6px;margin-top:8px;"></div>
                                 </div>
                             </div>
                         </div>
@@ -3754,9 +3758,13 @@
                      ============================================= -->
                 <div id="tab-dashboard" class="tab-panel active">
 
-                    <!-- Cycle selector — lets the auditor flip between billing cycles
-                         so the dashboard can show any month's snapshot, not just latest. -->
-                    <div id="cycle-selector" style="display:none;padding:10px 14px;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;"></div>
+                    <!-- Cycle + BAN selectors — lets the auditor flip between billing
+                         cycles AND scope the dashboard to a single sub-account (BAN) or
+                         all sub-accounts. Side-by-side so they don't take vertical room. -->
+                    <div id="audit-scope-bar" style="display:none;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+                        <div id="cycle-selector" style="flex:1;min-width:280px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;"></div>
+                        <div id="ban-selector" style="flex:1;min-width:280px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;display:none;"></div>
+                    </div>
 
                     <!-- ============================================================
                          EMPTY STATE (visible until body.has-audit-data is set)
@@ -3808,6 +3816,31 @@
                                 <button class="btn-cta" type="button" data-deep-link="zero-usage">
                                     Review →
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- BY-BAN BREAKOUT — per-sub-account snapshot. Hidden until
+                             the audit has more than one active BAN. Click any row to
+                             scope the entire dashboard to that sub-account. -->
+                        <div class="dash-card" id="dash-by-ban-card" style="display:none;">
+                            <div class="dash-section-label">
+                                <span class="dash-eyebrow">By sub-account (BAN)</span>
+                                <span id="dash-by-ban-meta" style="font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono','SF Mono',Menlo,monospace;">— BANs</span>
+                            </div>
+                            <div id="dash-by-ban-body" style="overflow-x:auto;">
+                                <table id="dash-by-ban-table" style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                                    <thead>
+                                        <tr style="border-bottom:1px solid var(--border);color:var(--text-secondary);text-transform:uppercase;font-size:10.5px;letter-spacing:0.05em;">
+                                            <th style="padding:8px 10px;text-align:left;">Account #</th>
+                                            <th style="padding:8px 10px;text-align:right;">Lines</th>
+                                            <th style="padding:8px 10px;text-align:right;">Latest bill</th>
+                                            <th style="padding:8px 10px;text-align:right;">90-day spend</th>
+                                            <th style="padding:8px 10px;text-align:right;">Zero-usage</th>
+                                            <th style="padding:8px 10px;text-align:right;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dash-by-ban-rows"></tbody>
+                                </table>
                             </div>
                         </div>
 
@@ -4703,7 +4736,7 @@
             carrier: null,
             carrierName: null,
             carrierColor: null,
-            files: { usage: null, upgrade: null, pdf: null },
+            files: { usage: null, upgrade: null, pdf: null, zips: [] },
             clientName: '',
             currentPage: 'carrier', // carrier | upload | results
             currentTab: 'dashboard'
@@ -4814,9 +4847,58 @@
                 badge.style.color = state.carrierColor;
                 document.getElementById('upload-carrier-badge-name').textContent = state.carrierName;
 
+                // Reconfigure upload zones for the chosen carrier. Verizon swaps
+                // zone-usage into zip-multi mode (drop 1–3 monthly zips) and
+                // hides the PDF zone since each zip already contains the bill.
+                applyCarrierUploadConfig(state.carrier);
+
                 showPage('upload');
             });
         });
+
+        /* -------------------------------------------------------
+           CARRIER-AWARE UPLOAD ZONE CONFIG
+           Verizon downloads from MyVerizon are zip files (Raw Data Download),
+           one per month. Stephen drops 1–3 zips at once. AT&T/T-Mobile/Tangoe
+           still take a single CSV/TXT plus optional contract + PDF.
+           ------------------------------------------------------- */
+        function applyCarrierUploadConfig(carrier) {
+            const usageZone   = document.getElementById('zone-usage');
+            const usageInput  = document.getElementById('file-usage');
+            const usageTitle  = usageZone.querySelector('.upload-zone-title-text');
+            const usageDesc   = usageZone.querySelector('.upload-zone-desc');
+            const usageBadge  = usageZone.querySelector('.upload-zone-title .badge');
+            const upgradeZone = document.getElementById('zone-upgrade');
+            const pdfZone     = document.getElementById('zone-pdf');
+            const checkPdf    = document.getElementById('check-pdf');
+            const checkUpgrade = document.getElementById('check-upgrade');
+
+            // Reset to defaults first.
+            usageZone.classList.remove('zip-mode');
+            usageInput.accept = '.csv,.txt,.CSV,.TXT';
+            usageInput.removeAttribute('multiple');
+            if (upgradeZone) upgradeZone.style.display = '';
+            if (pdfZone)     pdfZone.style.display = '';
+            if (checkUpgrade) checkUpgrade.style.display = '';
+            if (checkPdf)     checkPdf.style.display = '';
+
+            if (carrier === 'verizon') {
+                usageZone.classList.add('zip-mode');
+                usageInput.accept = '.zip,.ZIP';
+                usageInput.setAttribute('multiple', 'multiple');
+                usageTitle.textContent = 'MyVerizon Raw Data Download (zip)';
+                usageDesc.textContent  = 'Drop 1–3 monthly zips from MyVerizon → Reports → Raw Data Download. Each zip contains the 4 TXT files this audit needs. Multi-account is auto-detected; dead sub-accounts are dropped automatically.';
+                if (usageBadge) usageBadge.textContent = 'Required';
+                // Verizon zips already include charges + bill summary, so PDF is redundant.
+                if (pdfZone) pdfZone.style.display = 'none';
+                if (checkPdf) checkPdf.style.display = 'none';
+                // Upgrade Eligibility (separate MyVerizon export) is still optional.
+            } else {
+                usageTitle.textContent = 'Usage / Charges Report';
+                usageDesc.textContent = 'Primary billing and usage data. Accepts CSV or TXT format. Tangoe TCC exports auto-detected.';
+                if (usageBadge) usageBadge.textContent = 'Required (or use PDF)';
+            }
+        }
 
         /* -------------------------------------------------------
            BACK BUTTON
@@ -4832,10 +4914,11 @@
             state.carrier = null;
             state.carrierName = null;
             state.carrierColor = null;
-            state.files = { usage: null, upgrade: null, pdf: null };
+            state.files = { usage: null, upgrade: null, pdf: null, zips: [] };
             state.clientName = '';
             document.getElementById('client-name').value = '';
             resetUploadZones();
+            applyCarrierUploadConfig(null);
             updateChecklist();
             showPage('carrier');
         });
@@ -4855,6 +4938,57 @@
             return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
 
+        // Render the multi-file list inside zone-usage (Verizon zip mode).
+        function renderZipList() {
+            const zoneEl = zones.usage.zone;
+            const listEl = zoneEl.querySelector('.file-multi-list');
+            const singleInfo = zoneEl.querySelector('.file-info');
+            const isZipMode = zoneEl.classList.contains('zip-mode');
+            if (!listEl) return;
+
+            if (!isZipMode) {
+                listEl.style.display = 'none';
+                listEl.innerHTML = '';
+                return;
+            }
+            // Hide the single-file info row when in zip mode; the list takes its place.
+            if (singleInfo) singleInfo.style.display = 'none';
+
+            const zips = state.files.zips || [];
+            // Sync the visual "filled" state with whether zips are present.
+            if (zips.length > 0) {
+                zoneEl.classList.add('has-file', 'required');
+            } else {
+                zoneEl.classList.remove('has-file', 'required', 'optional');
+            }
+            if (zips.length === 0) {
+                listEl.style.display = 'none';
+                listEl.innerHTML = '';
+                return;
+            }
+            listEl.style.display = 'flex';
+            listEl.innerHTML = zips.map((f, i) => `
+                <div class="file-info" data-zip-idx="${i}" style="display:flex;align-items:center;gap:8px;background:rgba(34,197,94,0.06);padding:6px 10px;border-radius:6px;border:1px solid rgba(34,197,94,0.2);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="flex-shrink:0;color:var(--success)"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                    <span class="file-name" style="flex:1;">${f.name}</span>
+                    <span class="file-size" style="color:var(--text-secondary);font-size:11px;">${formatFileSize(f.size)}</span>
+                    <button class="zip-remove" data-zip-idx="${i}" title="Remove zip" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:2px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+            `).join('');
+
+            listEl.querySelectorAll('.zip-remove').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.dataset.zipIdx);
+                    state.files.zips.splice(idx, 1);
+                    renderZipList();
+                    updateChecklist();
+                });
+            });
+        }
+
         function setFile(zoneKey, file) {
             state.files[zoneKey] = file;
             const zoneEl = zones[zoneKey].zone;
@@ -4862,6 +4996,8 @@
 
             if (file) {
                 zoneEl.classList.add('has-file', isRequired ? 'required' : 'optional');
+                const singleInfo = zoneEl.querySelector('.file-info');
+                if (singleInfo) singleInfo.style.display = '';
                 zoneEl.querySelector('.file-name').textContent = file.name;
                 zoneEl.querySelector('.file-size').textContent = formatFileSize(file.size);
             } else {
@@ -4873,8 +5009,28 @@
             updateChecklist();
         }
 
+        // For Verizon-zip mode: append zip Files to state.files.zips.
+        // Append (not replace) so the user can drop one zip at a time.
+        function addZips(fileList) {
+            if (!state.files.zips) state.files.zips = [];
+            for (const f of fileList) {
+                if (!/\.zip$/i.test(f.name)) {
+                    console.warn('[Upload] Ignoring non-zip in Verizon zip mode:', f.name);
+                    continue;
+                }
+                // Skip dupes by name+size (cheap guard against accidental double-drop).
+                const dupe = state.files.zips.find(x => x.name === f.name && x.size === f.size);
+                if (dupe) continue;
+                state.files.zips.push(f);
+            }
+            renderZipList();
+            updateChecklist();
+        }
+
         function resetUploadZones() {
             Object.keys(zones).forEach(key => setFile(key, null));
+            state.files.zips = [];
+            renderZipList();
         }
 
         Object.keys(zones).forEach(key => {
@@ -4882,12 +5038,18 @@
 
             // Click to browse
             zone.addEventListener('click', (e) => {
-                if (e.target.closest('.file-remove')) return;
+                if (e.target.closest('.file-remove') || e.target.closest('.zip-remove')) return;
                 input.click();
             });
 
             input.addEventListener('change', () => {
-                if (input.files.length > 0) setFile(key, input.files[0]);
+                if (input.files.length === 0) return;
+                if (key === 'usage' && zone.classList.contains('zip-mode')) {
+                    addZips(input.files);
+                    input.value = ''; // clear so re-picking the same file fires change
+                } else {
+                    setFile(key, input.files[0]);
+                }
             });
 
             // Drag and drop
@@ -4896,7 +5058,12 @@
             zone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 zone.classList.remove('drag-over');
-                if (e.dataTransfer.files.length > 0) setFile(key, e.dataTransfer.files[0]);
+                if (e.dataTransfer.files.length === 0) return;
+                if (key === 'usage' && zone.classList.contains('zip-mode')) {
+                    addZips(e.dataTransfer.files);
+                } else {
+                    setFile(key, e.dataTransfer.files[0]);
+                }
             });
 
             // Remove button
@@ -4910,13 +5077,15 @@
            CHECKLIST & RUN AUDIT BUTTON
            ------------------------------------------------------- */
         function updateChecklist() {
-            document.getElementById('check-usage').classList.toggle('checked', !!state.files.usage);
+            const hasZips = !!(state.files.zips && state.files.zips.length > 0);
+            const hasUsage = !!state.files.usage || hasZips;
+            document.getElementById('check-usage').classList.toggle('checked', hasUsage);
             document.getElementById('check-upgrade').classList.toggle('checked', !!state.files.upgrade);
             document.getElementById('check-pdf').classList.toggle('checked', !!state.files.pdf);
 
             const btn = document.getElementById('btn-run-audit');
-            // Allow audit with EITHER usage CSV OR bill PDF (for small accounts)
-            btn.disabled = !(state.files.usage || state.files.pdf);
+            // Allow audit with EITHER usage CSV/zip OR bill PDF (for small accounts)
+            btn.disabled = !(hasUsage || state.files.pdf);
         }
 
         document.getElementById('btn-run-audit').addEventListener('click', () => {
@@ -5216,25 +5385,26 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260430-design-v3"></script>
+    <script src="js/app.js?v=20260430-vz-zip"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260430-design-v3"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260430-design-v3"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260430-design-v3"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260430-design-v3"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/usage-report.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260430-design-v3"></script>
-    <script src="js/analyzers/cycle-trend.js?v=20260430-design-v3"></script>
-    <script src="js/reporters/pdf-report.js?v=20260430-design-v3"></script>
-    <script src="js/reporters/excel-report.js?v=20260430-design-v3"></script>
-    <script src="js/views/sheet-view.js?v=20260430-design-v3"></script>
-    <script src="js/views/discrepancy.js?v=20260430-design-v3"></script>
-    <script src="js/log/audit-log.js?v=20260430-design-v3"></script>
-    <script src="js/api/agent-api.js?v=20260430-design-v3"></script>
+    <script src="js/parsers/att-csv.js?v=20260430-vz-zip"></script>
+    <script src="js/parsers/verizon-zip.js?v=20260430-vz-zip"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260430-vz-zip"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260430-vz-zip"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260430-vz-zip"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/usage-report.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260430-vz-zip"></script>
+    <script src="js/analyzers/cycle-trend.js?v=20260430-vz-zip"></script>
+    <script src="js/reporters/pdf-report.js?v=20260430-vz-zip"></script>
+    <script src="js/reporters/excel-report.js?v=20260430-vz-zip"></script>
+    <script src="js/views/sheet-view.js?v=20260430-vz-zip"></script>
+    <script src="js/views/discrepancy.js?v=20260430-vz-zip"></script>
+    <script src="js/log/audit-log.js?v=20260430-vz-zip"></script>
+    <script src="js/api/agent-api.js?v=20260430-vz-zip"></script>
 
 
     <!-- ============================================================

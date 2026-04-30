@@ -117,64 +117,99 @@
         console.log('[AUDIT] PDF profiles built:', Object.keys(profiles).length);
 
       } else {
-        // ── CSV-BASED AUDIT (standard) ──
-        parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
-        parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
+        // ── CSV/ZIP-BASED AUDIT (standard) ──
+        // Verizon zip-mode short-circuits here — the user dropped 1–3 monthly
+        // zips from MyVerizon (Raw Data Download) and we crack them in-browser.
+        const verizonZips = (uiState.files.zips || []).filter(f => /\.zip$/i.test(f.name));
+        const isVerizonZipMode = carrier === 'verizon' && verizonZips.length > 0;
 
-        console.log('[AUDIT] Carrier:', carrier);
-        console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
-        console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
+        if (isVerizonZipMode) {
+          DTG.updateProcessingStatus('Extracting ' + verizonZips.length + ' Verizon zip' +
+                                     (verizonZips.length === 1 ? '' : 's') + '...');
+          DTG.updateProcessingProgress(15);
 
-        // Auto-detect Tangoe TCC format regardless of selected carrier
-        const isTangoe = carrier === 'tangoe' ||
-          (parsedUsage && window.TangoeParser && window.TangoeParser.detect(parsedUsage.headers));
-        if (isTangoe && carrier !== 'tangoe') {
-          console.log('[AUDIT] Tangoe TCC format auto-detected from headers');
-        }
-
-        // Detect the carrier the headers actually belong to, and bail out with a
-        // clear error if it disagrees with what the user selected.
-        if (!isTangoe && parsedUsage) {
-          const detected = detectCarrierFromHeaders(parsedUsage.headers);
-          if (detected && detected !== carrier) {
-            const pretty = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile' };
-            throw new Error(
-              `Carrier mismatch: you selected ${pretty[carrier] || carrier}, but the uploaded file looks like ${pretty[detected] || detected}. ` +
-              `Click "New Audit" and choose ${pretty[detected] || detected}.`
-            );
+          if (!window.VerizonZip) {
+            throw new Error('Verizon zip handler not loaded — refresh the page and retry.');
           }
-        }
+          const extracted = await window.VerizonZip.extractZips(verizonZips);
+          console.log('[AUDIT] Verizon zip extract:', extracted.zipCount, 'zips,',
+                       extracted.files.map(f => f.type + ':' + f.rows.length).join(' '),
+                       extracted.missing.length ? '(missing: ' + extracted.missing.join(', ') + ')' : '');
 
-        DTG.updateProcessingProgress(25);
-        DTG.updateProcessingStatus('Building line profiles...');
+          if (extracted.files.length === 0) {
+            throw new Error('No recognised Verizon TXT files inside the uploaded zip(s). Make sure these came from MyVerizon → Reports → Raw Data Download.');
+          }
 
-        let result;
-        if (isTangoe) {
-          result = window.TangoeParser.parse(parsedUsage ? parsedUsage.rows : []);
-        } else if (carrier === 'att') {
-          result = window.ATTParser.parse(
-            parsedUsage ? parsedUsage.rows : [],
-            parsedUpgrade ? parsedUpgrade.rows : null
-          );
-        } else if (carrier === 'verizon') {
-          const files = [];
-          if (parsedUsage) {
-            const type = window.VerizonParser.detectFileType(parsedUsage.headers) || 'wirelessSummary';
-            files.push({ type, rows: parsedUsage.rows });
-          }
-          if (parsedUpgrade) {
-            const type = window.VerizonParser.detectFileType(parsedUpgrade.headers);
-            if (type) files.push({ type, rows: parsedUpgrade.rows });
-          }
-          result = window.VerizonParser.parse(files);
-        } else if (carrier === 'tmobile') {
-          result = window.TMobileParser.parse(parsedUsage ? parsedUsage.rows : []);
+          DTG.updateProcessingProgress(35);
+          DTG.updateProcessingStatus('Building line profiles from ' +
+            extracted.files.find(f => f.type === 'wirelessSummary')?.rows.length || 0 + ' wireless rows...');
+
+          const result = window.VerizonParser.parse(extracted.files);
+          profiles = result.profiles;
+          meta = result.meta || {};
+          meta.zipCount = extracted.zipCount;
+          meta.zipNames = extracted.zipNames;
         } else {
-          throw new Error('Unknown carrier: ' + carrier);
-        }
+          parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
+          parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
 
-        profiles = result.profiles;
-        meta = result.meta || {};
+          console.log('[AUDIT] Carrier:', carrier);
+          console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
+          console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
+
+          // Auto-detect Tangoe TCC format regardless of selected carrier
+          const isTangoe = carrier === 'tangoe' ||
+            (parsedUsage && window.TangoeParser && window.TangoeParser.detect(parsedUsage.headers));
+          if (isTangoe && carrier !== 'tangoe') {
+            console.log('[AUDIT] Tangoe TCC format auto-detected from headers');
+          }
+
+          // Detect the carrier the headers actually belong to, and bail out with a
+          // clear error if it disagrees with what the user selected.
+          if (!isTangoe && parsedUsage) {
+            const detected = detectCarrierFromHeaders(parsedUsage.headers);
+            if (detected && detected !== carrier) {
+              const pretty = { att: 'AT&T', verizon: 'Verizon', tmobile: 'T-Mobile' };
+              throw new Error(
+                `Carrier mismatch: you selected ${pretty[carrier] || carrier}, but the uploaded file looks like ${pretty[detected] || detected}. ` +
+                `Click "New Audit" and choose ${pretty[detected] || detected}.`
+              );
+            }
+          }
+
+          DTG.updateProcessingProgress(25);
+          DTG.updateProcessingStatus('Building line profiles...');
+
+          let result;
+          if (isTangoe) {
+            result = window.TangoeParser.parse(parsedUsage ? parsedUsage.rows : []);
+          } else if (carrier === 'att') {
+            result = window.ATTParser.parse(
+              parsedUsage ? parsedUsage.rows : [],
+              parsedUpgrade ? parsedUpgrade.rows : null
+            );
+          } else if (carrier === 'verizon') {
+            // Legacy path: single TXT file dropped instead of zip. Less useful
+            // (only one cycle of data) but keep it working for ad-hoc checks.
+            const files = [];
+            if (parsedUsage) {
+              const type = window.VerizonParser.detectFileType(parsedUsage.headers) || 'wirelessSummary';
+              files.push({ type, rows: parsedUsage.rows });
+            }
+            if (parsedUpgrade) {
+              const type = window.VerizonParser.detectFileType(parsedUpgrade.headers);
+              if (type) files.push({ type, rows: parsedUpgrade.rows });
+            }
+            result = window.VerizonParser.parse(files);
+          } else if (carrier === 'tmobile') {
+            result = window.TMobileParser.parse(parsedUsage ? parsedUsage.rows : []);
+          } else {
+            throw new Error('Unknown carrier: ' + carrier);
+          }
+
+          profiles = result.profiles;
+          meta = result.meta || {};
+        }
       }
 
       const profileCount = Object.keys(profiles).length;
@@ -319,6 +354,12 @@
         activeCycle: trend && trend.snapshots && trend.snapshots.length > 0
           ? trend.snapshots[trend.snapshots.length - 1].cycle
           : null,
+        // Multi-account scoping. allProfiles + allMeta are the unfiltered
+        // baseline; profiles/meta get swapped to a single-BAN view when the
+        // BAN selector changes. activeBan = 'ALL' means "show every BAN".
+        allProfiles: profiles,
+        allMeta: meta,
+        activeBan: 'ALL',
         sheetViewResults, discrepancyReport,
       };
       window.DTG.auditData = auditData;
@@ -500,6 +541,8 @@
 
     // Populate the cycle selector + month label on the hero card
     renderCycleSelector(data);
+    renderBanSelector(data);
+    renderByBanBreakout(data);
     renderCycleLabel(snapshot);
 
     // Savings
@@ -1000,12 +1043,15 @@
   function renderCycleSelector(data) {
     const host = document.getElementById('cycle-selector');
     if (!host) return;
+    const scopeBar = document.getElementById('audit-scope-bar');
     const snapshots = (data.trend && data.trend.snapshots) || [];
     if (snapshots.length < 1) {
       host.style.display = 'none';
+      if (scopeBar) scopeBar.style.display = 'none';
       return;
     }
     host.style.display = '';
+    if (scopeBar) scopeBar.style.display = 'flex';
     // Only rebuild the dropdown when cycles change, so the user's in-flight
     // selection isn't clobbered on tab switches.
     const sig = snapshots.map(s => s.cycle).join('|');
@@ -1723,5 +1769,227 @@
   function dateStr() {
     return new Date().toISOString().split('T')[0];
   }
+
+  // ═══════════════════════════════════════════════════════
+  // MULTI-BAN SUPPORT — selector + breakout panel + filter.
+  // Verizon and AT&T both produce meta.byBan keyed by sub-account number.
+  // The dashboard scope dropdown lets the auditor pick "All BANs" or a single
+  // sub-account; picking one re-runs the analyzers against only that BAN's
+  // lines so every KPI/chart/table reflects that scope.
+  // ═══════════════════════════════════════════════════════
+
+  function getActiveBans(data) {
+    const all = (data.allMeta && data.allMeta.byBan) || (data.meta && data.meta.byBan) || {};
+    // meta.activeBans is set by both parsers (lines whose latest cycle had >$0).
+    const activeList = (data.allMeta && data.allMeta.activeBans) ||
+                       (data.meta && data.meta.activeBans) ||
+                       Object.keys(all);
+    return activeList.filter(b => all[b]);
+  }
+
+  function renderBanSelector(data) {
+    const host = document.getElementById('ban-selector');
+    if (!host) return;
+    const bans = getActiveBans(data);
+    // Hide entirely for single-BAN audits — the dropdown adds noise without it.
+    if (bans.length < 2) {
+      host.style.display = 'none';
+      return;
+    }
+    host.style.display = '';
+
+    // Only rebuild when the BAN list changes; otherwise the user's in-flight
+    // selection survives tab/cycle switches.
+    const sig = bans.join('|');
+    if (host.dataset.banSig === sig) {
+      const sel = host.querySelector('select');
+      if (sel) sel.value = data.activeBan || 'ALL';
+      return;
+    }
+
+    host.innerHTML = '';
+    const label = document.createElement('label');
+    label.textContent = 'Sub-account:';
+    label.style.cssText = 'font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;';
+    host.appendChild(label);
+
+    const sel = document.createElement('select');
+    sel.id = 'ban-selector-input';
+    sel.style.cssText = 'margin-left:8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;min-width:240px;';
+
+    const optAll = document.createElement('option');
+    optAll.value = 'ALL';
+    optAll.textContent = 'All BANs (' + bans.length + ')';
+    sel.appendChild(optAll);
+
+    const allByBan = (data.allMeta && data.allMeta.byBan) || {};
+    for (const ban of bans) {
+      const info = allByBan[ban] || {};
+      const opt = document.createElement('option');
+      opt.value = ban;
+      const lc = info.latestLineCount != null ? info.latestLineCount : info.lineCount || 0;
+      opt.textContent = ban + '  ·  ' + lc + ' line' + (lc === 1 ? '' : 's');
+      sel.appendChild(opt);
+    }
+    sel.value = data.activeBan || 'ALL';
+    sel.addEventListener('change', (e) => {
+      applyBanFilter(data, e.target.value);
+    });
+    host.appendChild(sel);
+    host.dataset.banSig = sig;
+  }
+
+  function renderByBanBreakout(data) {
+    const card = document.getElementById('dash-by-ban-card');
+    const tbody = document.getElementById('dash-by-ban-rows');
+    const metaEl = document.getElementById('dash-by-ban-meta');
+    if (!card || !tbody) return;
+
+    const bans = getActiveBans(data);
+    if (bans.length < 2) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+
+    const allByBan = (data.allMeta && data.allMeta.byBan) || {};
+    const totalLatestBill = bans.reduce((s, b) => s + ((allByBan[b] && allByBan[b].billLatest) || 0), 0);
+    if (metaEl) {
+      metaEl.textContent = bans.length + ' active BAN' + (bans.length === 1 ? '' : 's') +
+                           '  ·  ' + fmtMoney(totalLatestBill) + ' latest bill';
+    }
+
+    // Sort by latest-bill descending so the biggest BANs surface at the top.
+    const sorted = bans.slice().sort((a, b) => (allByBan[b].billLatest || 0) - (allByBan[a].billLatest || 0));
+
+    tbody.innerHTML = sorted.map(ban => {
+      const info = allByBan[ban] || {};
+      const isActive = data.activeBan === ban;
+      const rowStyle = 'border-bottom:1px solid var(--border);' +
+                       (isActive ? 'background:rgba(247,147,30,0.08);' : '');
+      const banCell = '<span style="font-family:\'JetBrains Mono\',\'SF Mono\',Menlo,monospace;font-size:12px;">' +
+                      escapeHtml(ban) + '</span>' +
+                      (info.billName ? '<div style="color:var(--text-secondary);font-size:10.5px;margin-top:2px;">' + escapeHtml(info.billName) + '</div>' : '');
+      return '<tr data-ban-row="' + escapeHtml(ban) + '" style="' + rowStyle + 'cursor:pointer;">' +
+             '<td style="padding:8px 10px;text-align:left;">' + banCell + '</td>' +
+             '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + (info.latestLineCount || 0) + '</td>' +
+             '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(info.billLatest || 0) + '</td>' +
+             '<td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(info.totalSpend90d || 0) + '</td>' +
+             '<td style="padding:8px 10px;text-align:right;">' + (info.zeroUsageCount > 0
+                ? '<span style="color:#f59e0b;font-weight:600;">' + info.zeroUsageCount + '</span>'
+                : '<span style="color:var(--text-secondary);">0</span>') + '</td>' +
+             '<td style="padding:8px 10px;text-align:right;">' +
+               (isActive
+                  ? '<span style="font-size:10.5px;color:var(--accent);font-weight:600;">VIEWING</span>'
+                  : '<span style="font-size:10.5px;color:var(--text-secondary);">click to filter →</span>') +
+             '</td></tr>';
+    }).join('');
+
+    // Wire row click → switch BAN selector
+    tbody.querySelectorAll('tr[data-ban-row]').forEach(row => {
+      row.addEventListener('click', () => {
+        const ban = row.dataset.banRow;
+        applyBanFilter(data, data.activeBan === ban ? 'ALL' : ban);
+      });
+    });
+  }
+
+  /**
+   * Filter auditData to a single BAN (or 'ALL') and re-run the analyzers.
+   * Mutates data in place so existing populate functions see the new view,
+   * then re-renders all UI surfaces.
+   */
+  function applyBanFilter(data, ban) {
+    if (!data || !data.allProfiles) return;
+    data.activeBan = ban || 'ALL';
+
+    // Build the filtered profiles + meta we'll feed to the analyzers.
+    let filteredProfiles, filteredMeta;
+    if (data.activeBan === 'ALL') {
+      filteredProfiles = data.allProfiles;
+      filteredMeta = data.allMeta;
+    } else {
+      filteredProfiles = {};
+      for (const [wn, p] of Object.entries(data.allProfiles)) {
+        if ((p.ban || '') === data.activeBan) filteredProfiles[wn] = p;
+      }
+      // Synthetic billByCycle scoped to just this sub-account. Use the BAN's
+      // per-cycle totals from meta.byBan (carried from AccountSummary for VZ
+      // and from billByCycle aggregation for AT&T) when available; otherwise
+      // sum the line-level cycles as a fallback so the dashboard still works.
+      const banInfo = (data.allMeta && data.allMeta.byBan && data.allMeta.byBan[data.activeBan]) || {};
+      const billByCycle = {};
+      const seedFromBanCycles = banInfo.cycles || {};
+      for (const [cycle, c] of Object.entries(seedFromBanCycles)) {
+        billByCycle[cycle] = {
+          totalCurrent:   c.totalCurrent   || 0,
+          monthlyCharges: c.monthlyCharges || 0,
+          activity:       c.activity       || 0,
+          taxes:          c.taxes          || 0,
+          fees:           c.fees           || 0,
+        };
+      }
+      // Fallback: derive from filtered profiles' billingCycles
+      if (Object.keys(billByCycle).length === 0) {
+        for (const p of Object.values(filteredProfiles)) {
+          for (const [cycle, c] of Object.entries(p.billingCycles || {})) {
+            if (!billByCycle[cycle]) {
+              billByCycle[cycle] = { totalCurrent:0, monthlyCharges:0, activity:0, taxes:0, fees:0 };
+            }
+            billByCycle[cycle].totalCurrent   += c.totalCurrent   || 0;
+            billByCycle[cycle].monthlyCharges += c.monthlyCharges || 0;
+            billByCycle[cycle].activity       += c.activity       || 0;
+            billByCycle[cycle].taxes          += c.taxes          || 0;
+            billByCycle[cycle].fees           += c.fees           || 0;
+          }
+        }
+      }
+      filteredMeta = Object.assign({}, data.allMeta, {
+        billByCycle,
+        // byBan stays the same so the breakout still lists every BAN.
+      });
+    }
+
+    // Re-run analyzers against the filtered set.
+    const carrier = data.carrier;
+    const zeroUsageResults = window.ZeroUsageAnalyzer.analyze(filteredProfiles, carrier);
+    const zeroUsageSummary = window.ZeroUsageAnalyzer.summarize(zeroUsageResults);
+    const usageReport = window.UsageReportAnalyzer.analyze(filteredProfiles);
+    const ratePlans = window.RatePlanAnalyzer.analyze(filteredProfiles);
+    const trend = (window.CycleTrendAnalyzer && window.CycleTrendAnalyzer.analyze)
+      ? window.CycleTrendAnalyzer.analyze(filteredProfiles, filteredMeta)
+      : { snapshots: [], deltas: [], cycleCount: 0, byCycle: {} };
+
+    // Mutate in place so existing populate funcs that read data.X just work.
+    data.profiles = filteredProfiles;
+    data.meta = filteredMeta;
+    data.zeroUsageResults = zeroUsageResults;
+    data.zeroUsageSummary = zeroUsageSummary;
+    data.usageReport = usageReport;
+    data.ratePlans = ratePlans;
+    data.trend = trend;
+    // Reset active cycle to the latest of the filtered scope (avoids dangling
+    // references to a cycle that no longer has data).
+    data.activeCycle = trend.snapshots && trend.snapshots.length > 0
+      ? trend.snapshots[trend.snapshots.length - 1].cycle
+      : null;
+
+    // Re-render every surface that reads data.*
+    populateDashboardKPIs(data);
+    if (typeof renderDashboardCharts === 'function') renderDashboardCharts(data);
+    if (typeof populateZeroUsageTable === 'function') populateZeroUsageTable(data);
+    if (typeof populateUsageTable === 'function') populateUsageTable(data);
+    if (typeof populateRatePlanTable === 'function') populateRatePlanTable(data);
+    if (typeof populatePlanComparison === 'function') populatePlanComparison(data);
+    if (typeof populateTrendTab === 'function') populateTrendTab(data);
+
+    console.log('[BAN] Switched to', data.activeBan, '—', Object.keys(filteredProfiles).length, 'lines');
+  }
+
+  // Expose so the BAN row click handler can see it (it lives outside the IIFE
+  // scope chain via a fresh event listener; but renderByBanBreakout is inside
+  // the IIFE so this is just for debugging/console use).
+  window.DTG = window.DTG || {};
+  window.DTG.applyBanFilter = applyBanFilter;
 
 })();
