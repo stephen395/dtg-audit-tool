@@ -1979,6 +1979,20 @@
             top: 0;
             z-index: 2;
         }
+        /* Compact table variant — tighter padding for narrower columns */
+        .data-table.compact-table th {
+            padding: 8px 10px;
+            font-size: 10.5px;
+        }
+        .data-table.compact-table td {
+            padding: 7px 10px;
+            font-size: 12.5px;
+            white-space: nowrap;
+        }
+        .data-table.compact-table td:first-child {
+            white-space: normal;
+            max-width: 220px;
+        }
 
         .data-table th {
             padding: 12px 16px;
@@ -2019,7 +2033,6 @@
         .data-table tbody tr:hover {
             background: rgba(255, 255, 255, 0.02);
         }
-
         .data-table td {
             padding: 10px 16px;
             color: var(--text-secondary);
@@ -2127,8 +2140,16 @@
            ============================================================ */
         .rateplan-layout {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
+            grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        @media (max-width: 1100px) {
+            .rateplan-layout {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
         }
 
         @media (max-width: 900px) {
@@ -2139,8 +2160,7 @@
 
         .rateplan-section {
             background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
+            border: 1px solid var(--border);            border-radius: var(--radius);
             overflow: hidden;
         }
 
@@ -2165,7 +2185,6 @@
             height: 16px;
             color: var(--accent);
         }
-
         .log-viewer {
             max-height: 400px;
             overflow-y: auto;
@@ -4251,8 +4270,8 @@
                             <div style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
                                 <span id="n8n-sync-status" style="font-size:0.75rem;color:var(--text-muted)"></span>
                             </div>
-                            <div class="table-scrollable" style="max-height:500px;">
-                                <table class="data-table" id="rateplan-summary-table">
+                            <div class="table-scrollable" style="max-height:500px;overflow-x:auto;">
+                                <table class="data-table compact-table" id="rateplan-summary-table" style="min-width:100%;font-size:12.5px;">
                                     <thead>
                                         <tr>
                                             <th data-sort="plan">Plan Name <span class="sort-icon">&#9650;</span></th>
@@ -5197,27 +5216,25 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260430-cycle-trend"></script>
+    <script src="js/app.js?v=20260430-design-v3"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260430-cycle-trend"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260430-cycle-trend"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260430-cycle-trend"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260430-cycle-trend"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260430-cycle-trend"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260430-cycle-trend"></script>
-    <script src="js/analyzers/usage-report.js?v=20260430-cycle-trend"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260430-cycle-trend"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260430-cycle-trend"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260430-cycle-trend"></script>
-    <!-- Per-cycle snapshots + month-over-month deltas. Powers the cycle
-         selector on the dashboard hero and the Trend tab. -->
-    <script src="js/analyzers/cycle-trend.js?v=20260430-cycle-trend"></script>
-    <script src="js/reporters/pdf-report.js?v=20260430-cycle-trend"></script>
-    <script src="js/reporters/excel-report.js?v=20260430-cycle-trend"></script>
-    <script src="js/views/sheet-view.js?v=20260430-cycle-trend"></script>
-    <script src="js/views/discrepancy.js?v=20260430-cycle-trend"></script>
-    <script src="js/log/audit-log.js?v=20260430-cycle-trend"></script>
-    <script src="js/api/agent-api.js?v=20260430-cycle-trend"></script>
+    <script src="js/parsers/att-csv.js?v=20260430-design-v3"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260430-design-v3"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260430-design-v3"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260430-design-v3"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/usage-report.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260430-design-v3"></script>
+    <script src="js/analyzers/cycle-trend.js?v=20260430-design-v3"></script>
+    <script src="js/reporters/pdf-report.js?v=20260430-design-v3"></script>
+    <script src="js/reporters/excel-report.js?v=20260430-design-v3"></script>
+    <script src="js/views/sheet-view.js?v=20260430-design-v3"></script>
+    <script src="js/views/discrepancy.js?v=20260430-design-v3"></script>
+    <script src="js/log/audit-log.js?v=20260430-design-v3"></script>
+    <script src="js/api/agent-api.js?v=20260430-design-v3"></script>
 
 
     <!-- ============================================================
