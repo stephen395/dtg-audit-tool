@@ -5197,26 +5197,27 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260430-redesign-v2"></script>
+    <script src="js/app.js?v=20260430-cycle-trend"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260430-redesign-v2"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260430-redesign-v2"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260430-redesign-v2"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260430-redesign-v2"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260430-redesign-v2"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260430-redesign-v2"></script>
-    <script src="js/analyzers/usage-report.js?v=20260430-redesign-v2"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260430-redesign-v2"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260430-redesign-v2"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260430-redesign-v2"></script>
-    <!-- cycle-trend.js is referenced by the new app.js but feature-detected,
-         so a missing file is non-fatal. -->
-    <script src="js/reporters/pdf-report.js?v=20260430-redesign-v2"></script>
-    <script src="js/reporters/excel-report.js?v=20260430-redesign-v2"></script>
-    <script src="js/views/sheet-view.js?v=20260430-redesign-v2"></script>
-    <script src="js/views/discrepancy.js?v=20260430-redesign-v2"></script>
-    <script src="js/log/audit-log.js?v=20260430-redesign-v2"></script>
-    <script src="js/api/agent-api.js?v=20260430-redesign-v2"></script>
+    <script src="js/parsers/att-csv.js?v=20260430-cycle-trend"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260430-cycle-trend"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260430-cycle-trend"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260430-cycle-trend"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260430-cycle-trend"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260430-cycle-trend"></script>
+    <script src="js/analyzers/usage-report.js?v=20260430-cycle-trend"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260430-cycle-trend"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260430-cycle-trend"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260430-cycle-trend"></script>
+    <!-- Per-cycle snapshots + month-over-month deltas. Powers the cycle
+         selector on the dashboard hero and the Trend tab. -->
+    <script src="js/analyzers/cycle-trend.js?v=20260430-cycle-trend"></script>
+    <script src="js/reporters/pdf-report.js?v=20260430-cycle-trend"></script>
+    <script src="js/reporters/excel-report.js?v=20260430-cycle-trend"></script>
+    <script src="js/views/sheet-view.js?v=20260430-cycle-trend"></script>
+    <script src="js/views/discrepancy.js?v=20260430-cycle-trend"></script>
+    <script src="js/log/audit-log.js?v=20260430-cycle-trend"></script>
+    <script src="js/api/agent-api.js?v=20260430-cycle-trend"></script>
 
 
     <!-- ============================================================
