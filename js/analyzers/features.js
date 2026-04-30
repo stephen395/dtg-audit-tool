@@ -313,9 +313,50 @@ window.FeatureAnalyzer = (function () {
 
     const totalMonthly = features.reduce((s, f) => s + f.totalMonthly, 0);
 
+    // ── Per-line roll-up — answers "which lines have add-ons and how much" so
+    // Stephen can drill from a category total down to the actual phone numbers
+    // and decide which to keep / cancel. Indexed by wireless, with the unique
+    // features on each line (de-duped against the same feature being billed in
+    // two parts in one cycle, e.g. full month + proration).
+    const lineRollup = {};
+    for (const f of features) {
+      for (const it of f.items) {
+        if (!lineRollup[it.wireless]) {
+          lineRollup[it.wireless] = {
+            wireless: it.wireless,
+            userName: it.userName || '',
+            ban: it.ban || '',
+            totalMonthly: 0,
+            featureMap: {},  // { description: {category, description, cost} }
+          };
+        }
+        const r = lineRollup[it.wireless];
+        r.totalMonthly += it.cost;
+        if (!r.featureMap[f.description]) {
+          r.featureMap[f.description] = { category: f.category, description: f.description, cost: 0 };
+        }
+        r.featureMap[f.description].cost += it.cost;
+        if (!r.userName && it.userName) r.userName = it.userName;
+        if (!r.ban && it.ban) r.ban = it.ban;
+      }
+    }
+    // Materialise + sort.
+    const lineSpend = Object.values(lineRollup).map(r => {
+      const features = Object.values(r.featureMap).sort((a, b) => b.cost - a.cost);
+      return {
+        wireless: r.wireless,
+        userName: r.userName,
+        ban: r.ban,
+        totalMonthly: r.totalMonthly,
+        featureCount: features.length,
+        features,
+      };
+    }).sort((a, b) => b.totalMonthly - a.totalMonthly);
+
     return {
       features,
       categories,
+      lineSpend,
       totalMonthly,
       annualCost: totalMonthly * 12,
       uniqueLineCount: allLines.size,
@@ -325,7 +366,8 @@ window.FeatureAnalyzer = (function () {
 
   function emptyResult(carrier) {
     return {
-      features: [], categories: [], totalMonthly: 0, annualCost: 0,
+      features: [], categories: [], lineSpend: [],
+      totalMonthly: 0, annualCost: 0,
       uniqueLineCount: 0, featureCount: 0, _empty: true, carrier,
     };
   }

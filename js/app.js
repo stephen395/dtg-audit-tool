@@ -1843,19 +1843,121 @@
       }).join('');
     }
 
-    // Per-feature drill-down table
+    // Per-feature drill-down table — each row expandable to show the lines.
     const detailBody = document.getElementById('features-detail-body');
     if (detailBody) {
-      detailBody.innerHTML = (f.features || []).map(fe => {
+      detailBody.innerHTML = (f.features || []).map((fe, i) => {
         const isUncat = fe.category === 'Other / Uncategorized';
-        return '<tr style="border-bottom:1px solid var(--border);">' +
-               '<td style="padding:6px 10px;color:' + (isUncat ? '#f59e0b' : 'var(--text-secondary)') + ';font-size:11px;">' + escapeHtml(fe.category) + '</td>' +
-               '<td style="padding:6px 10px;">' + escapeHtml(fe.description) + '</td>' +
-               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + fe.lineCount + '</td>' +
-               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + fmtMoney(fe.avgPerLine) + '</td>' +
-               '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(fe.totalMonthly) + '</td>' +
-               '</tr>';
+        const linesHtml = (fe.items || [])
+          .slice()
+          .sort((a, b) => b.cost - a.cost)
+          .map(it =>
+            '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">' +
+            '<td style="padding:4px 10px;font-family:\'JetBrains Mono\',\'SF Mono\',Menlo,monospace;font-size:11px;">' + escapeHtml(it.wireless) + '</td>' +
+            '<td style="padding:4px 10px;">' + escapeHtml(it.userName || '') + '</td>' +
+            '<td style="padding:4px 10px;font-family:\'JetBrains Mono\',\'SF Mono\',Menlo,monospace;font-size:10.5px;color:var(--text-secondary);">' + escapeHtml(it.ban || '') + '</td>' +
+            '<td style="padding:4px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(it.cost) + '</td>' +
+            '</tr>'
+          ).join('');
+        return (
+          '<tr class="feature-row" data-feat-idx="' + i + '" style="border-bottom:1px solid var(--border);cursor:pointer;">' +
+            '<td style="padding:6px 10px;text-align:center;color:var(--text-secondary);font-size:10px;"><span class="feat-chev" data-chev-for="' + i + '">▸</span></td>' +
+            '<td style="padding:6px 10px;color:' + (isUncat ? '#f59e0b' : 'var(--text-secondary)') + ';font-size:11px;">' + escapeHtml(fe.category) + '</td>' +
+            '<td style="padding:6px 10px;">' + escapeHtml(fe.description) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + fe.lineCount + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + fmtMoney(fe.avgPerLine) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(fe.totalMonthly) + '</td>' +
+          '</tr>' +
+          // Inline expansion row, hidden by default.
+          '<tr class="feature-detail-row" data-feat-detail="' + i + '" style="display:none;background:rgba(0,0,0,0.18);">' +
+            '<td colspan="6" style="padding:8px 10px 14px 36px;">' +
+              '<div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Lines paying for this:</div>' +
+              '<table style="width:100%;border-collapse:collapse;font-size:11.5px;">' +
+                '<thead><tr style="color:var(--text-secondary);text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em;">' +
+                  '<th style="padding:4px 10px;text-align:left;">Wireless</th>' +
+                  '<th style="padding:4px 10px;text-align:left;">User</th>' +
+                  '<th style="padding:4px 10px;text-align:left;">BAN</th>' +
+                  '<th style="padding:4px 10px;text-align:right;">Cost / mo</th>' +
+                '</tr></thead>' +
+                '<tbody>' + linesHtml + '</tbody>' +
+              '</table>' +
+            '</td>' +
+          '</tr>'
+        );
       }).join('');
+
+      // Wire row toggle — click a feature row to reveal/hide its line list.
+      detailBody.querySelectorAll('tr.feature-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const idx = row.dataset.featIdx;
+          const detail = detailBody.querySelector('tr.feature-detail-row[data-feat-detail="' + idx + '"]');
+          const chev = row.querySelector('.feat-chev');
+          if (!detail) return;
+          const isOpen = detail.style.display !== 'none';
+          detail.style.display = isOpen ? 'none' : '';
+          if (chev) chev.textContent = isOpen ? '▸' : '▾';
+        });
+      });
+    }
+
+    // ── By-line table ── one row per phone number that has any add-on,
+    // sorted by total monthly add-on cost. Click a row to expand the
+    // per-feature list for that line.
+    const byLineBody = document.getElementById('features-by-line-body');
+    const byLineMeta = document.getElementById('features-by-line-meta');
+    const lineSpend = f.lineSpend || [];
+    if (byLineMeta) {
+      const top = lineSpend.slice(0, 5).reduce((s, l) => s + l.totalMonthly, 0);
+      const pct = f.totalMonthly ? (top / f.totalMonthly) * 100 : 0;
+      byLineMeta.textContent = lineSpend.length + ' line' + (lineSpend.length === 1 ? '' : 's') +
+        ' have add-ons. Top 5 = ' + fmtMoney(top) + '/mo (' + pct.toFixed(0) + '% of total feature spend).';
+    }
+    if (byLineBody) {
+      byLineBody.innerHTML = lineSpend.map((l, i) => {
+        const innerRows = (l.features || []).map(ft =>
+          '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">' +
+          '<td style="padding:3px 10px;color:var(--text-secondary);font-size:10.5px;">' + escapeHtml(ft.category) + '</td>' +
+          '<td style="padding:3px 10px;">' + escapeHtml(ft.description) + '</td>' +
+          '<td style="padding:3px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(ft.cost) + '</td>' +
+          '</tr>'
+        ).join('');
+        return (
+          '<tr class="byline-row" data-line-idx="' + i + '" style="border-bottom:1px solid var(--border);cursor:pointer;">' +
+            '<td style="padding:6px 10px;text-align:center;color:var(--text-secondary);font-size:10px;"><span class="byline-chev" data-byline-chev="' + i + '">▸</span></td>' +
+            '<td style="padding:6px 10px;font-family:\'JetBrains Mono\',\'SF Mono\',Menlo,monospace;font-size:11.5px;">' + escapeHtml(l.wireless) + '</td>' +
+            '<td style="padding:6px 10px;">' + escapeHtml(l.userName || '') + '</td>' +
+            '<td style="padding:6px 10px;font-family:\'JetBrains Mono\',\'SF Mono\',Menlo,monospace;font-size:10.5px;color:var(--text-secondary);">' + escapeHtml(l.ban || '') + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">' + l.featureCount + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtMoney(l.totalMonthly) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary);">' + fmtMoney(l.totalMonthly * 12) + '</td>' +
+          '</tr>' +
+          '<tr class="byline-detail-row" data-byline-detail="' + i + '" style="display:none;background:rgba(0,0,0,0.18);">' +
+            '<td colspan="7" style="padding:8px 10px 14px 36px;">' +
+              '<div style="font-size:10.5px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Add-ons on this line:</div>' +
+              '<table style="width:100%;border-collapse:collapse;font-size:11.5px;">' +
+                '<thead><tr style="color:var(--text-secondary);text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em;">' +
+                  '<th style="padding:4px 10px;text-align:left;">Category</th>' +
+                  '<th style="padding:4px 10px;text-align:left;">Feature</th>' +
+                  '<th style="padding:4px 10px;text-align:right;">Cost / mo</th>' +
+                '</tr></thead>' +
+                '<tbody>' + innerRows + '</tbody>' +
+              '</table>' +
+            '</td>' +
+          '</tr>'
+        );
+      }).join('');
+
+      byLineBody.querySelectorAll('tr.byline-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const idx = row.dataset.lineIdx;
+          const detail = byLineBody.querySelector('tr.byline-detail-row[data-byline-detail="' + idx + '"]');
+          const chev = row.querySelector('.byline-chev');
+          if (!detail) return;
+          const isOpen = detail.style.display !== 'none';
+          detail.style.display = isOpen ? 'none' : '';
+          if (chev) chev.textContent = isOpen ? '▸' : '▾';
+        });
+      });
     }
   }
 

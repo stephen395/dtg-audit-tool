@@ -4341,13 +4341,15 @@
                                     <tbody id="features-cat-body"></tbody>
                                 </table>
                             </div>
-                            <!-- Per-feature drill-down — collapsible -->
-                            <details id="features-detail" style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
-                                <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Per-feature breakdown</summary>
+                            <!-- Per-feature drill-down — click any row to expand and see
+                                 which specific lines have that feature. Open by default. -->
+                            <details id="features-detail" open style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Per-feature breakdown — click a row to see which lines have it</summary>
                                 <div style="overflow-x:auto;margin-top:10px;">
                                     <table id="features-detail-table" style="width:100%;border-collapse:collapse;font-size:12px;">
                                         <thead>
                                             <tr style="border-bottom:1px solid var(--border);color:var(--text-secondary);text-transform:uppercase;font-size:10px;letter-spacing:0.05em;">
+                                                <th style="padding:6px 10px;text-align:left;width:24px;"></th>
                                                 <th style="padding:6px 10px;text-align:left;">Category</th>
                                                 <th style="padding:6px 10px;text-align:left;">Feature</th>
                                                 <th style="padding:6px 10px;text-align:right;">Lines</th>
@@ -4356,6 +4358,30 @@
                                             </tr>
                                         </thead>
                                         <tbody id="features-detail-body"></tbody>
+                                    </table>
+                                </div>
+                            </details>
+
+                            <!-- Top lines by add-on spend — surfaces the biggest spenders so
+                                 Stephen can quickly see which lines might be over-loaded with
+                                 add-ons. Click a row to see all features on that line. -->
+                            <details id="features-by-line" open style="margin-top:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                                <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Lines with add-ons — click a row to see every feature on that line</summary>
+                                <div id="features-by-line-meta" style="font-size:11px;color:var(--text-secondary);margin-top:6px;"></div>
+                                <div style="overflow-x:auto;margin-top:10px;">
+                                    <table id="features-by-line-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                                        <thead>
+                                            <tr style="border-bottom:1px solid var(--border);color:var(--text-secondary);text-transform:uppercase;font-size:10px;letter-spacing:0.05em;">
+                                                <th style="padding:6px 10px;text-align:left;width:24px;"></th>
+                                                <th style="padding:6px 10px;text-align:left;">Wireless</th>
+                                                <th style="padding:6px 10px;text-align:left;">User</th>
+                                                <th style="padding:6px 10px;text-align:left;">BAN</th>
+                                                <th style="padding:6px 10px;text-align:right;">Add-ons</th>
+                                                <th style="padding:6px 10px;text-align:right;">Monthly</th>
+                                                <th style="padding:6px 10px;text-align:right;">Annual</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="features-by-line-body"></tbody>
                                     </table>
                                 </div>
                             </details>
