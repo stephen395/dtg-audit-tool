@@ -140,15 +140,31 @@
             throw new Error('No recognised Verizon TXT files inside the uploaded zip(s). Make sure these came from MyVerizon → Reports → Raw Data Download.');
           }
 
+          // Optional: Upgrade Eligibility / Device Report is a separate
+          // export from MyVerizon. When uploaded alongside the zips, the
+          // parser anchors the line universe on it — matching Stephen's
+          // manual Sheet workflow. Without it, every billing line is in scope.
+          const filesForParser = extracted.files.slice();
+          if (uiState.files.upgrade) {
+            DTG.updateProcessingStatus('Reading Upgrade Eligibility / Device Report...');
+            const ueParsed = await parseFileAsync(uiState.files.upgrade);
+            const detected = window.VerizonParser.detectFileType(ueParsed.headers) || 'upgradeEligibility';
+            filesForParser.push({ type: detected, rows: ueParsed.rows });
+            console.log('[AUDIT] Verizon Upgrade Eligibility:', ueParsed.rows.length, 'rows, detected:', detected);
+          }
+
           DTG.updateProcessingProgress(35);
           DTG.updateProcessingStatus('Building line profiles from ' +
             extracted.files.find(f => f.type === 'wirelessSummary')?.rows.length || 0 + ' wireless rows...');
 
-          const result = window.VerizonParser.parse(extracted.files);
+          const result = window.VerizonParser.parse(filesForParser);
           profiles = result.profiles;
           meta = result.meta || {};
           meta.zipCount = extracted.zipCount;
           meta.zipNames = extracted.zipNames;
+          if (meta.usingUpgradeEligibility) {
+            console.log('[AUDIT] Anchored on Upgrade Eligibility (' + meta.upgradeEligibilityCount + ' managed lines) → ' + Object.keys(profiles).length + ' profiles');
+          }
         } else {
           parsedUsage = uiState.files.usage ? await parseFileAsync(uiState.files.usage) : null;
           parsedUpgrade = uiState.files.upgrade ? await parseFileAsync(uiState.files.upgrade) : null;
