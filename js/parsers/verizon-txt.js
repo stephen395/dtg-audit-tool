@@ -29,12 +29,20 @@
 window.VerizonParser = (function () {
 
   /**
-   * Detect which of the 4 Verizon TXT file types this is, by sniffing headers.
-   * Returns 'accountSummary' | 'wirelessSummary' | 'chargesDetail' | 'usageDetail' | null
+   * Detect which Verizon file kind this is, by sniffing headers.
+   * Returns 'accountSummary' | 'wirelessSummary' | 'chargesDetail' |
+   *         'usageDetail' | 'upgradeEligibility' | null
    */
   function detectFileType(headers) {
     const h = headers.map(c => c.toLowerCase().trim());
 
+    // upgradeEligibility — separate "Device Report" CSV/XLSX export from
+    // MyVerizon. The "device manufacturer" + "upgrade eligibility date"
+    // combo is distinctive and rules out the other 4 kinds.
+    if (h.some(c => c.includes('upgrade eligibility date')) ||
+        (h.some(c => c.includes('device manufacturer')) && h.some(c => c.includes('contract end date')))) {
+      return 'upgradeEligibility';
+    }
     // Order matters: usageDetail also has 'wireless number' but is uniquely
     // identified by per-call columns like 'origination'/'min'.
     if (h.some(c => c.includes('usage category')) && h.some(c => c.includes('origination'))) {
@@ -163,6 +171,41 @@ window.VerizonParser = (function () {
   }
 
   /**
+   * Parse Verizon's Device Report / Upgrade Eligibility export. One row per
+   * managed wireless line that has a registered device. Used to:
+   *   1. Filter the audit's line universe — Stephen's manual workflow
+   *      anchors on this report so only lines with managed devices count.
+   *      Lines that bill but aren't in this file (M2M modules, FWA routers,
+   *      cameras without registered IMEI) get excluded from zero-usage.
+   *   2. Surface contract end dates + device info on every profile so the
+   *      Zero Usage tab can show the contract column (matching the Sheet).
+   */
+  function parseUpgradeEligibility(rows) {
+    const out = [];
+    for (const row of rows) {
+      const wn = clean(row['Wireless number'] || row['wireless number'] ||
+                       row['Wireless Number'] || row['wireless_number']);
+      if (!wn || wn === 'N/A' || wn.length < 7) continue;
+      out.push({
+        wireless: wn,
+        ban: clean(row['Account number'] || row['Account Number'] || row['account number']),
+        accountName: clean(row['Account name'] || row['account name']),
+        userName: clean(row['User name'] || row['user name']),
+        costCenter: clean(row['Cost center'] || row['cost center']),
+        deviceId: clean(row['Current device ID - 4G only'] || row['Shipped device ID']),
+        deviceMake: clean(row['Device manufacturer'] || row['device manufacturer']),
+        deviceModel: clean(row['Device model'] || row['device model']),
+        deviceType: clean(row['Device type'] || row['device type']),
+        activationDate: clean(row['Activation date'] || row['activation date']),
+        contractActivationDate: clean(row['Contract activation date']),
+        contractEndDate: clean(row['Contract end date'] || row['contract end date']),
+        upgradeEligibilityDate: clean(row['Upgrade eligibility date'] || row['upgrade eligibility date']),
+      });
+    }
+    return out;
+  }
+
+  /**
    * Parse Charges Detail — itemised charges per line per cycle. We use this
    * mainly to detect Device Payment Agreement (installment) progress and
    * promo credits that don't show up in the line-summary file.
@@ -209,10 +252,27 @@ window.VerizonParser = (function () {
    *
    * Returns { profiles, meta } — meta.byBan is keyed by sub-account.
    */
-  function buildProfiles(wirelessLines, chargesItems, accountSummaries) {
+  function buildProfiles(wirelessLines, chargesItems, accountSummaries, upgradeEligibility) {
+    upgradeEligibility = upgradeEligibility || [];
+
+    // ── Build the Upgrade Eligibility lookup ────────────────────────────────
+    // When the user uploads MyVerizon's Device Report, we anchor the line
+    // universe on it (matching Stephen's manual Sheet workflow). Lines that
+    // bill but aren't in this file (M2M modules, FWA routers, lines without
+    // registered IMEIs) get filtered out before zero-usage analysis.
+    const ueByLine = {};
+    for (const u of upgradeEligibility) {
+      if (u.wireless) ueByLine[u.wireless] = u;
+    }
+    const hasUpgrade = upgradeEligibility.length > 0;
+
     // ── Group wireless rows by line ──────────────────────────────────────────
     const byWireless = {};
     for (const line of wirelessLines) {
+      // If we have an Upgrade Eligibility report, skip lines that aren't in
+      // it — they're real billing entries but not "managed phone lines" per
+      // Stephen's audit conventions.
+      if (hasUpgrade && !ueByLine[line.wireless]) continue;
       if (!byWireless[line.wireless]) byWireless[line.wireless] = [];
       byWireless[line.wireless].push(line);
     }
@@ -309,13 +369,44 @@ window.VerizonParser = (function () {
         if (m) remainingMonths = Math.max(0, parseInt(m[2]) - parseInt(m[1]));
       }
 
+      // Pull device + contract info from the Upgrade Eligibility report (if uploaded).
+      const ue = ueByLine[wn] || {};
+      const ueDeviceType = ue.deviceType || deviceType;
+
+      // BAN selection — when UE is provided, prefer the UE's BAN (the canonical
+      // current sub-account assignment). Without UE, fall back to the last
+      // cycle's row's BAN. This matters for lines that moved BANs mid-quarter:
+      // their billing rows scatter across both old and new BANs (final
+      // refund on the old BAN + actual charge on the new BAN), and naive
+      // "last-row wins" sorting would assign them to the old (now-dead)
+      // BAN, then the dead-BAN filter would drop them entirely.
+      let lineBan = latest.ban;
+      if (ue.ban) {
+        lineBan = ue.ban;
+      } else {
+        // Without UE, pick the cycle/row with the largest positive totalCharges
+        // — that's where the active service lives.
+        let bestEntry = latest;
+        let bestCharge = -Infinity;
+        for (const e of entries) {
+          if ((e.totalCharges || 0) > bestCharge) {
+            bestCharge = e.totalCharges;
+            bestEntry = e;
+          }
+        }
+        if (bestEntry) lineBan = bestEntry.ban;
+      }
+
       profiles[wn] = {
         wireless: wn,
         userName,
-        ban: latest.ban,
+        ban: lineBan,
         costCenter: latest.costCenter,
         status: 'Active',
-        deviceType,
+        deviceType: ueDeviceType,
+        deviceMake: ue.deviceMake || '',
+        deviceModel: ue.deviceModel || '',
+        deviceIMEI: ue.deviceId || '',
         ratePlan: latest.callingPlan,
         rateCode: '',
         billingCycles,
@@ -344,22 +435,91 @@ window.VerizonParser = (function () {
         totalMsg90d: totalMsg,
         zeroUsage,
 
-        // Contract / device-payment fields.
+        // Contract / device-payment fields. Contract end / activation now
+        // come from the Upgrade Eligibility report when uploaded; otherwise
+        // they fall back to the DPA-derived state.
         contractType: hasAnyDpa ? 'Installment' : 'None',
-        contractEnd: '',
-        contractEndDate: null,
+        contractEnd: ue.contractEndDate || '',
+        contractEndDate: ue.contractEndDate ? new Date(ue.contractEndDate) : null,
         contractStatus: hasAnyDpa ? 'Active' : '',
         monthlyInstallment: latestDpa ? latestDpa.installment : 0,
         dpaProgress: latestDpa ? latestDpa.dpaProgress : '',
         promoCredit: latestPromo,
         remainingMonths,
-        hasActiveContract: hasAnyDpa && remainingMonths > 0,
+        hasActiveContract: !!(ue.contractEndDate && new Date(ue.contractEndDate) > new Date())
+                           || (hasAnyDpa && remainingMonths > 0),
         etf: 0,
-        activationDate: '',
+        activationDate: ue.activationDate || '',
+        upgradeEligibilityDate: ue.upgradeEligibilityDate || '',
 
         doNotCancel,
         monthCount: entries.length,
       };
+    }
+
+    // ── Ghost profiles for UE lines with no billing rows ──────────────────────
+    // The sheet's "Usage Report" formula SUMs Raw Data rows by wireless number.
+    // When a wireless number is in Upgrade Eligibility but has no billing rows
+    // (recently disconnected, pending first cycle, etc.), the sum is 0 and the
+    // line gets flagged as zero-usage anyway. We mirror that — create a
+    // zero-everything profile so the audit lands at the same line count.
+    if (hasUpgrade) {
+      for (const u of upgradeEligibility) {
+        if (!u.wireless || profiles[u.wireless]) continue;
+        profiles[u.wireless] = {
+          wireless: u.wireless,
+          userName: u.userName || 'Unknown',
+          ban: u.ban || '',
+          costCenter: u.costCenter || '',
+          status: 'Active',
+          deviceType: u.deviceType || 'Other',
+          deviceMake: u.deviceMake || '',
+          deviceModel: u.deviceModel || '',
+          deviceIMEI: u.deviceId || '',
+          ratePlan: '',
+          rateCode: '',
+          billingCycles: {},
+          cycleCount: 0,
+
+          latestMonthly: 0,
+          latestTotal: 0,
+          latestActivity: 0,
+          latestTaxes: 0,
+          latestFees: 0,
+          equipmentCharges: 0,
+          usagePurchaseCharges: 0,
+          mrc: 0,
+
+          gbTotal: 0,
+          gbAvg: 0,
+          minTotal: 0,
+          minAvg: 0,
+          msgTotal: 0,
+          msgAvg: 0,
+          totalKb90d: 0,
+          totalMin90d: 0,
+          totalMsg90d: 0,
+          // No billing data → treat as zero-usage (matches Sheet behaviour).
+          zeroUsage: true,
+
+          contractType: 'None',
+          contractEnd: u.contractEndDate || '',
+          contractEndDate: u.contractEndDate ? new Date(u.contractEndDate) : null,
+          contractStatus: '',
+          monthlyInstallment: 0,
+          dpaProgress: '',
+          promoCredit: 0,
+          remainingMonths: 0,
+          hasActiveContract: !!(u.contractEndDate && new Date(u.contractEndDate) > new Date()),
+          etf: 0,
+          activationDate: u.activationDate || '',
+          upgradeEligibilityDate: u.upgradeEligibilityDate || '',
+
+          doNotCancel: false,
+          monthCount: 0,
+          isGhost: true,  // marker — line in UE but never billed in our 3-month window
+        };
+      }
     }
 
     // ── Per-cycle bill totals (drives dashboard cycle selector) ──────────────
@@ -508,6 +668,11 @@ window.VerizonParser = (function () {
         // Cycle filtering happens in features.js so it sees the latest cycle
         // only and reports current monthly cost (not 3-month sum).
         chargesDetail: chargesItems || [],
+        // True only when the Upgrade Eligibility (Device Report) was
+        // uploaded and used to anchor the line universe. Lets the dashboard
+        // surface "anchored to N managed lines" vs "audit every billing line".
+        usingUpgradeEligibility: hasUpgrade,
+        upgradeEligibilityCount: upgradeEligibility.length,
       }
     };
   }
@@ -520,6 +685,7 @@ window.VerizonParser = (function () {
     let accountSummaries = [];
     let wirelessLines = [];
     let chargesItems = [];
+    let upgradeEligibility = [];
 
     for (const { type, rows } of files) {
       switch (type) {
@@ -532,11 +698,14 @@ window.VerizonParser = (function () {
         case 'chargesDetail':
           chargesItems = parseChargesDetail(rows);
           break;
+        case 'upgradeEligibility':
+          upgradeEligibility = parseUpgradeEligibility(rows);
+          break;
         // usageDetail intentionally skipped — call records aren't used here.
       }
     }
 
-    return buildProfiles(wirelessLines, chargesItems, accountSummaries);
+    return buildProfiles(wirelessLines, chargesItems, accountSummaries, upgradeEligibility);
   }
 
   return {
@@ -545,6 +714,7 @@ window.VerizonParser = (function () {
     parseAccountSummary,
     parseWirelessSummary,
     parseChargesDetail,
+    parseUpgradeEligibility,
     buildProfiles,
     classifyDevice,
   };
