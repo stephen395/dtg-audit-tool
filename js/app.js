@@ -2286,22 +2286,34 @@
     // ── Active contracts table (sorted by months remaining ascending) ──────
     const sorted = [...activeContracts].sort((a, b) => (a.remainingMonths || 0) - (b.remainingMonths || 0));
 
-    html += `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:8px;">Active contracts</div>
+    // Compute per-line and total NET device charges (gross minus any
+    // promotional/amortized credit). Credits aren't in the inventory CSV —
+    // they only show up in the bill PDF's promotions section. When a bill
+    // PDF is uploaded the parser populates p.deviceCredit; otherwise it
+    // defaults to 0 and Net == Gross.
+    const totalCredit  = activeContracts.reduce((s, p) => s + (p.deviceCredit || 0), 0);
+    const totalNet     = totalInstallment - totalCredit;
+
+    html += `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:6px;">Active contracts</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+        <strong>ETF</strong> = monthly device charge <em>before</em> credits × months remaining. Promotional credits do not reduce the early-termination fee.
+      </div>
       <div style="overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px;">
       <table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead><tr style="background:#1a3a5c;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:0.03em;">
           <th style="padding:10px 12px;text-align:left;">Wireless</th>
           <th style="padding:10px 12px;text-align:left;">User</th>
           <th style="padding:10px 12px;text-align:left;">Device</th>
-          <th style="padding:10px 12px;text-align:left;">Type</th>
           <th style="padding:10px 12px;text-align:left;">End Date</th>
           <th style="padding:10px 12px;text-align:right;">Time Left</th>
-          <th style="padding:10px 12px;text-align:right;">Monthly</th>
-          <th style="padding:10px 12px;text-align:right;">ETF</th>
+          <th style="padding:10px 12px;text-align:right;" title="Monthly device charge before any promotional/amortized credits">Device $/mo<br><span style="font-weight:400;font-size:10px;opacity:0.7;">(before credits)</span></th>
+          <th style="padding:10px 12px;text-align:right;" title="Promotional / amortized credit applied each month">Credit $/mo<br><span style="font-weight:400;font-size:10px;opacity:0.7;">(if any)</span></th>
+          <th style="padding:10px 12px;text-align:right;" title="What actually hits the bill each month">Net $/mo<br><span style="font-weight:400;font-size:10px;opacity:0.7;">(after credits)</span></th>
+          <th style="padding:10px 12px;text-align:right;" title="Months left × device charge before credits">ETF<br><span style="font-weight:400;font-size:10px;opacity:0.7;">(gross × months)</span></th>
         </tr></thead><tbody>`;
 
     if (sorted.length === 0) {
-      html += `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);">No active contracts on this account.</td></tr>`;
+      html += `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-muted);">No active contracts on this account.</td></tr>`;
     } else {
       for (const p of sorted) {
         const months = p.remainingMonths || 0;
@@ -2309,28 +2321,51 @@
         const monthsColor = months <= 3 ? '#f59e0b' : (months <= 6 ? '#eab308' : '#22c55e');
         const monthsLabel = months === 0 ? 'Expires this cycle' : `${months} mo`;
         const device = [p.deviceMake, p.deviceModel].filter(Boolean).join(' ').trim() || (p.deviceType || '—');
-        // Truncate long device strings without losing the model on hover
-        const deviceShort = device.length > 35 ? device.substring(0, 35) + '…' : device;
+        const deviceShort = device.length > 30 ? device.substring(0, 30) + '…' : device;
+
+        const gross  = p.monthlyInstallment || 0;
+        const credit = p.deviceCredit || 0;
+        const net    = gross - credit;
+        // ETF deliberately uses GROSS — credits don't reduce ETF.
+        const etf    = gross * months;
+
+        // Show "—" instead of "$0.00" for the credit column when no credit
+        // is known (most AT&T/Verizon CSVs don't carry credits — those live
+        // on the bill PDF). Keeps the column readable.
+        const creditCell = credit > 0
+          ? `<span style="color:#22c55e;">-${fmtMoney(credit)}</span>`
+          : `<span style="color:var(--text-muted);">—</span>`;
 
         html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
           <td style="padding:8px 12px;font-variant-numeric:tabular-nums;">${p.wireless}</td>
           <td style="padding:8px 12px;">${p.userName || '—'}</td>
           <td style="padding:8px 12px;color:var(--text-secondary);" title="${device}">${deviceShort}</td>
-          <td style="padding:8px 12px;color:var(--text-secondary);font-size:11px;">${p.contractType || ''}</td>
           <td style="padding:8px 12px;color:var(--text-secondary);">${p.contractEnd || '—'}</td>
           <td style="padding:8px 12px;text-align:right;color:${monthsColor};font-weight:600;">${monthsLabel}</td>
-          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtMoney(p.monthlyInstallment || 0)}</td>
-          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#ef4444;font-weight:600;">${fmtMoney(p.etf || 0)}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtMoney(gross)}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${creditCell}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">${fmtMoney(net)}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#ef4444;font-weight:600;">${fmtMoney(etf)}</td>
         </tr>`;
       }
-      // Total row
+      // Total row — sums each $/mo column independently.
       html += `<tr style="background:rgba(239,68,68,0.06);font-weight:700;">
-        <td colspan="6" style="padding:10px 12px;">TOTAL — ${sorted.length} active contracts</td>
+        <td colspan="5" style="padding:10px 12px;">TOTAL — ${sorted.length} active contracts</td>
         <td style="padding:10px 12px;text-align:right;">${fmtMoney(totalInstallment)}/mo</td>
+        <td style="padding:10px 12px;text-align:right;${totalCredit > 0 ? 'color:#22c55e;' : 'color:var(--text-muted);'}">${totalCredit > 0 ? '-' + fmtMoney(totalCredit) + '/mo' : '—'}</td>
+        <td style="padding:10px 12px;text-align:right;">${fmtMoney(totalNet)}/mo</td>
         <td style="padding:10px 12px;text-align:right;color:#ef4444;">${fmtMoney(totalEtf)}</td>
       </tr>`;
     }
     html += `</tbody></table></div>`;
+
+    // Note about where the credit data comes from. Helps Stephen understand
+    // why the column is empty for CSV-only audits and what report would fill it.
+    if (totalCredit === 0 && sorted.length > 0) {
+      html += `<div style="font-size:11px;color:var(--text-muted);margin:-8px 0 16px;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:6px;">
+        💡 <strong>Credit column is empty</strong> — promotional credits aren't in the AT&T inventory or usage CSVs. Upload the bill PDF on the audit, or pull a Premier "Promotional Credits" report, to populate Net $/mo. ETF math doesn't change either way.
+      </div>`;
+    }
 
     // ── Completed contracts (shorter table, no ETF) ────────────────────────
     if (completedContracts.length > 0) {
