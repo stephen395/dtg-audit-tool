@@ -16,6 +16,9 @@ window.UsageReportAnalyzer = (function () {
     const inventory = { smartphones: 0, tablets: 0, hotspots: 0, watches: 0, other: 0, total: 0 };
 
     for (const [wn, p] of Object.entries(profiles)) {
+      // Cancelled lines drop off the roster. Suspended lines stay on it —
+      // they're still billed (often a $10/mo suspension fee) and the user
+      // wants to see them flagged so they can decide cancel vs reactivate.
       if (p.status === 'Cancelled') continue;
 
       // Normalize field names — CSV uses latestMonthly, PDF uses mrc
@@ -28,6 +31,9 @@ window.UsageReportAnalyzer = (function () {
       const line = {
         wireless: wn,
         userName: p.userName || 'Unknown',
+        // Carry the carrier-reported status through so the Usage Report tab
+        // can render an "Active" / "Suspended" badge on each row.
+        status: p.status || 'Active',
         deviceType: p.deviceType || 'Unknown',
         ratePlan: p.ratePlan || '',
         ban: p.ban || '',
@@ -105,8 +111,13 @@ window.UsageReportAnalyzer = (function () {
     // so we still surface them separately for the device-payments panel.
     const billEquipment  = allProfiles.reduce((s, p) => s + (p.monthlyInstallment || 0), 0);
 
+    const suspendedCount = lines.filter(l => (l.status || '').toLowerCase() === 'suspended').length;
+    const activeCount    = lines.length - suspendedCount;
+
     const summary = {
       totalLines: lines.length,
+      activeCount,
+      suspendedCount,
       totalMRC: totalMRC,
       totalMonthlyCharges: totalMRC,
       totalCharges: totalChargesAll,
