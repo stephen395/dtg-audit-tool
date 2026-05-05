@@ -399,6 +399,7 @@
       populateFeaturesPanel(auditData);
       populatePlanComparison(auditData);
       populateTrendTab(auditData);
+      populateContractsTab(auditData);
       wireExportButtons(auditData);
 
       // ── Status Indicators ──
@@ -2209,8 +2210,169 @@
     if (typeof populateFeaturesPanel === 'function') populateFeaturesPanel(data);
     if (typeof populatePlanComparison === 'function') populatePlanComparison(data);
     if (typeof populateTrendTab === 'function') populateTrendTab(data);
+    if (typeof populateContractsTab === 'function') populateContractsTab(data);
 
     console.log('[BAN] Switched to', data.activeBan, '—', Object.keys(filteredProfiles).length, 'lines');
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // CONTRACTS TAB — time remaining on contracts + ETF exposure
+  //
+  // Pulls from each profile's already-computed:
+  //   contractType, contractEnd, contractEndDate, contractStatus,
+  //   monthlyInstallment, remainingMonths, hasActiveContract, etf,
+  //   deviceMake, deviceModel, lastUpgradeDate.
+  //
+  // Adds three context bands:
+  //   - Total ETF exposure across the account ("walk-away cost")
+  //   - Active contracts vs out-of-contract counts
+  //   - Lines expiring in the next 90 days (upgrade-soon flag)
+  // Then a sortable table of every line that has a contract record.
+  // ═══════════════════════════════════════════════════════
+  function populateContractsTab(data) {
+    const host = document.getElementById('tab-contracts-content');
+    if (!host) return;
+
+    const profiles = Object.values(data.profiles || {});
+    if (profiles.length === 0) {
+      host.innerHTML = '<p style="color:var(--text-secondary);padding:24px;">No audit data available.</p>';
+      return;
+    }
+
+    // Only consider lines that have *any* contract info on file.
+    // Lines without contract info (BYOD, no-contract, etc.) get a small
+    // section at the bottom so Stephen can see them too.
+    const withContract = profiles.filter(p => p.contractType && p.contractType !== 'None' && p.contractType !== '');
+    const noContract   = profiles.filter(p => !p.contractType || p.contractType === 'None' || p.contractType === '');
+
+    const activeContracts = withContract.filter(p => p.hasActiveContract);
+    const completedContracts = withContract.filter(p => !p.hasActiveContract);
+
+    const totalEtf = activeContracts.reduce((s, p) => s + (p.etf || 0), 0);
+    const totalInstallment = activeContracts.reduce((s, p) => s + (p.monthlyInstallment || 0), 0);
+    const expiringSoon = activeContracts.filter(p => p.remainingMonths > 0 && p.remainingMonths <= 3).length;
+
+    // Update the tab badge with the active-contract count.
+    const badge = document.getElementById('contracts-count-badge');
+    if (badge) {
+      badge.textContent = activeContracts.length;
+      badge.style.display = activeContracts.length > 0 ? '' : 'none';
+    }
+
+    // ── Summary band: 4 KPI cards ──────────────────────────────────────────
+    let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+      <div class="kpi-card" style="padding:14px 16px;">
+        <div class="kpi-card-label" style="font-size:10px;">Total ETF Exposure</div>
+        <div class="kpi-card-value" style="font-size:22px;color:#ef4444;">${fmtMoney(totalEtf)}</div>
+        <div class="kpi-card-sub">Walk-away cost today</div>
+      </div>
+      <div class="kpi-card" style="padding:14px 16px;">
+        <div class="kpi-card-label" style="font-size:10px;">Active Contracts</div>
+        <div class="kpi-card-value" style="font-size:22px;">${activeContracts.length}</div>
+        <div class="kpi-card-sub">${completedContracts.length} completed · ${noContract.length} no contract</div>
+      </div>
+      <div class="kpi-card" style="padding:14px 16px;">
+        <div class="kpi-card-label" style="font-size:10px;">Monthly Installments</div>
+        <div class="kpi-card-value" style="font-size:22px;">${fmtMoney(totalInstallment)}</div>
+        <div class="kpi-card-sub">Sum of device payments</div>
+      </div>
+      <div class="kpi-card" style="padding:14px 16px;">
+        <div class="kpi-card-label" style="font-size:10px;">Expiring Soon</div>
+        <div class="kpi-card-value" style="font-size:22px;color:${expiringSoon > 0 ? '#f59e0b' : 'var(--text)'};">${expiringSoon}</div>
+        <div class="kpi-card-sub">Lines ≤ 3 mo to upgrade</div>
+      </div>
+    </div>`;
+
+    // ── Active contracts table (sorted by months remaining ascending) ──────
+    const sorted = [...activeContracts].sort((a, b) => (a.remainingMonths || 0) - (b.remainingMonths || 0));
+
+    html += `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:8px;">Active contracts</div>
+      <div style="overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:20px;">
+      <table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#1a3a5c;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:0.03em;">
+          <th style="padding:10px 12px;text-align:left;">Wireless</th>
+          <th style="padding:10px 12px;text-align:left;">User</th>
+          <th style="padding:10px 12px;text-align:left;">Device</th>
+          <th style="padding:10px 12px;text-align:left;">Type</th>
+          <th style="padding:10px 12px;text-align:left;">End Date</th>
+          <th style="padding:10px 12px;text-align:right;">Time Left</th>
+          <th style="padding:10px 12px;text-align:right;">Monthly</th>
+          <th style="padding:10px 12px;text-align:right;">ETF</th>
+        </tr></thead><tbody>`;
+
+    if (sorted.length === 0) {
+      html += `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-muted);">No active contracts on this account.</td></tr>`;
+    } else {
+      for (const p of sorted) {
+        const months = p.remainingMonths || 0;
+        // Color the time-left cell — red ≤ 3mo, amber ≤ 6mo, green otherwise.
+        const monthsColor = months <= 3 ? '#f59e0b' : (months <= 6 ? '#eab308' : '#22c55e');
+        const monthsLabel = months === 0 ? 'Expires this cycle' : `${months} mo`;
+        const device = [p.deviceMake, p.deviceModel].filter(Boolean).join(' ').trim() || (p.deviceType || '—');
+        // Truncate long device strings without losing the model on hover
+        const deviceShort = device.length > 35 ? device.substring(0, 35) + '…' : device;
+
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 12px;font-variant-numeric:tabular-nums;">${p.wireless}</td>
+          <td style="padding:8px 12px;">${p.userName || '—'}</td>
+          <td style="padding:8px 12px;color:var(--text-secondary);" title="${device}">${deviceShort}</td>
+          <td style="padding:8px 12px;color:var(--text-secondary);font-size:11px;">${p.contractType || ''}</td>
+          <td style="padding:8px 12px;color:var(--text-secondary);">${p.contractEnd || '—'}</td>
+          <td style="padding:8px 12px;text-align:right;color:${monthsColor};font-weight:600;">${monthsLabel}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmtMoney(p.monthlyInstallment || 0)}</td>
+          <td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#ef4444;font-weight:600;">${fmtMoney(p.etf || 0)}</td>
+        </tr>`;
+      }
+      // Total row
+      html += `<tr style="background:rgba(239,68,68,0.06);font-weight:700;">
+        <td colspan="6" style="padding:10px 12px;">TOTAL — ${sorted.length} active contracts</td>
+        <td style="padding:10px 12px;text-align:right;">${fmtMoney(totalInstallment)}/mo</td>
+        <td style="padding:10px 12px;text-align:right;color:#ef4444;">${fmtMoney(totalEtf)}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+
+    // ── Completed contracts (shorter table, no ETF) ────────────────────────
+    if (completedContracts.length > 0) {
+      html += `<details style="margin-bottom:16px;">
+        <summary style="cursor:pointer;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text-secondary);">
+          ✓ Completed contracts (${completedContracts.length}) — eligible to upgrade or BYOD
+        </summary>
+        <div style="margin-top:8px;overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:8px;">
+        <table class="data-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:rgba(34,197,94,0.08);color:#22c55e;font-size:11px;text-transform:uppercase;">
+            <th style="padding:8px 12px;text-align:left;">Wireless</th>
+            <th style="padding:8px 12px;text-align:left;">User</th>
+            <th style="padding:8px 12px;text-align:left;">Device</th>
+            <th style="padding:8px 12px;text-align:left;">Last Upgrade</th>
+            <th style="padding:8px 12px;text-align:left;">Ended</th>
+          </tr></thead><tbody>`;
+      for (const p of completedContracts) {
+        const device = [p.deviceMake, p.deviceModel].filter(Boolean).join(' ').trim() || (p.deviceType || '—');
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:6px 12px;font-variant-numeric:tabular-nums;">${p.wireless}</td>
+          <td style="padding:6px 12px;">${p.userName || '—'}</td>
+          <td style="padding:6px 12px;color:var(--text-secondary);">${device}</td>
+          <td style="padding:6px 12px;color:var(--text-secondary);">${p.lastUpgradeDate || '—'}</td>
+          <td style="padding:6px 12px;color:var(--text-secondary);">${p.contractEnd || '—'}</td>
+        </tr>`;
+      }
+      html += `</tbody></table></div></details>`;
+    }
+
+    // ── No-contract / BYOD lines ───────────────────────────────────────────
+    if (noContract.length > 0) {
+      html += `<details>
+        <summary style="cursor:pointer;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text-secondary);">
+          BYOD / No-contract lines (${noContract.length})
+        </summary>
+        <div style="margin-top:8px;padding:12px;color:var(--text-muted);font-size:12px;">
+          ${noContract.length} line${noContract.length === 1 ? '' : 's'} without a contract — bring-your-own-device or already-paid-off equipment. No ETF exposure.
+        </div>
+      </details>`;
+    }
+
+    host.innerHTML = html;
   }
 
   // Expose so the BAN row click handler can see it (it lives outside the IIFE

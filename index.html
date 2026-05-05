@@ -3723,6 +3723,11 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                         Trend
                     </button>
+                    <button class="tab-btn" data-tab="contracts">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                        Contracts
+                        <span id="contracts-count-badge" class="tab-count" style="display:none;">0</span>
+                    </button>
                     <button class="tab-btn" data-tab="exports">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Exports
@@ -4648,6 +4653,11 @@
                     <div id="tab-trend-content"></div>
                 </div>
 
+                <!-- TAB: CONTRACTS — time remaining + ETF exposure per line -->
+                <div id="tab-contracts" class="tab-panel">
+                    <div id="tab-contracts-content"></div>
+                </div>
+
                 <!-- TAB: DISCREPANCIES -->
                 <div id="tab-discrepancies" class="tab-panel">
                     <!-- Redesign: summary band -->
@@ -5425,28 +5435,28 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260501-suspended-status"></script>
+    <script src="js/app.js?v=20260501-contracts-tab"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260501-suspended-status"></script>
-    <script src="js/parsers/verizon-zip.js?v=20260501-suspended-status"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260501-suspended-status"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260501-suspended-status"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260501-suspended-status"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/usage-report.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/features.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260501-suspended-status"></script>
-    <script src="js/analyzers/cycle-trend.js?v=20260501-suspended-status"></script>
-    <script src="js/reporters/pdf-report.js?v=20260501-suspended-status"></script>
-    <script src="js/reporters/excel-report.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/att-csv.js?v=20260501-contracts-tab"></script>
+    <script src="js/parsers/verizon-zip.js?v=20260501-contracts-tab"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260501-contracts-tab"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260501-contracts-tab"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260501-contracts-tab"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/usage-report.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/features.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260501-contracts-tab"></script>
+    <script src="js/analyzers/cycle-trend.js?v=20260501-contracts-tab"></script>
+    <script src="js/reporters/pdf-report.js?v=20260501-contracts-tab"></script>
+    <script src="js/reporters/excel-report.js?v=20260501-contracts-tab"></script>
     <!-- sheet-view.js + discrepancy.js intentionally removed — Sheet View
          was retired (it didn't produce reliable comparisons against the
          tool view). Only the production audit pipeline runs now. -->
-    <script src="js/log/audit-log.js?v=20260501-suspended-status"></script>
-    <script src="js/api/agent-api.js?v=20260501-suspended-status"></script>
+    <script src="js/log/audit-log.js?v=20260501-contracts-tab"></script>
+    <script src="js/api/agent-api.js?v=20260501-contracts-tab"></script>
 
 
     <!-- ============================================================
