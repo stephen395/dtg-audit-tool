@@ -24,10 +24,6 @@
     <!-- SheetJS -->
     <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Tabulator (editable data grid for Sheet View) -->
-    <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_midnight.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
-
     <style>
         /* ============================================================
            CSS RESET & BASE
@@ -3692,12 +3688,6 @@
                     </div>
                 </div>
 
-                <!-- View Switcher: Tool View vs Sheet View -->
-                <div class="view-switcher">
-                    <button class="view-switcher-btn active" data-view="tool">Tool View</button>
-                    <button class="view-switcher-btn" data-view="sheet">Sheet View</button>
-                </div>
-
                 <!-- Status Indicators -->
                 <div class="status-indicators" id="status-indicators" style="display:none;">
                     <span class="status-item" id="status-last-audit">Last audit: --</span>
@@ -3736,15 +3726,6 @@
                     <button class="tab-btn" data-tab="exports">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Exports
-                    </button>
-                    <button class="tab-btn sheet-only" data-tab="sheet-usage" style="display:none;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                        Sheet Usage
-                    </button>
-                    <button class="tab-btn sheet-only" data-tab="sheet-zero-usage" style="display:none;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                        Sheet Zero Usage
-                        <span id="sheet-zero-usage-count" class="tab-count">0</span>
                     </button>
                     <button class="tab-btn" data-tab="discrepancies">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -4667,17 +4648,7 @@
                     <div id="tab-trend-content"></div>
                 </div>
 
-                <!-- TAB: SHEET USAGE REPORT (sheet view only) -->
-                <div id="tab-sheet-usage" class="tab-panel sheet-only" style="display:none;">
-                    <div id="sheet-usage-content"></div>
-                </div>
-
-                <!-- TAB: SHEET ZERO USAGE (sheet view only) -->
-                <div id="tab-sheet-zero-usage" class="tab-panel sheet-only" style="display:none;">
-                    <div id="sheet-zero-usage-content"></div>
-                </div>
-
-                <!-- TAB: DISCREPANCIES (available in both views) -->
+                <!-- TAB: DISCREPANCIES -->
                 <div id="tab-discrepancies" class="tab-panel">
                     <!-- Redesign: summary band -->
                     <div class="tab-band">
@@ -5242,35 +5213,6 @@
         });
 
         /* -------------------------------------------------------
-           VIEW SWITCHER: Tool View vs Sheet View
-           ------------------------------------------------------- */
-        document.querySelectorAll('.view-switcher-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const view = btn.dataset.view;
-                document.querySelectorAll('.view-switcher-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                // Show/hide sheet-only and tool-only elements
-                if (view === 'sheet') {
-                    document.querySelectorAll('.tab-btn.sheet-only').forEach(el => el.style.display = '');
-                    document.querySelectorAll('.tab-panel.sheet-only').forEach(el => el.style.display = '');
-                    document.querySelectorAll('.tab-btn.tool-only').forEach(el => el.style.display = 'none');
-                    document.querySelectorAll('.tab-panel.tool-only').forEach(el => el.style.display = 'none');
-                } else {
-                    document.querySelectorAll('.tab-btn.sheet-only').forEach(el => el.style.display = 'none');
-                    document.querySelectorAll('.tab-panel.sheet-only').forEach(el => el.style.display = 'none');
-                    document.querySelectorAll('.tab-btn.tool-only').forEach(el => el.style.display = '');
-                    document.querySelectorAll('.tab-panel.tool-only').forEach(el => el.style.display = '');
-                }
-                
-                // Switch to the first tab of the active view
-                const firstTab = view === 'sheet' ? 'sheet-usage' : 'dashboard';
-                const firstBtn = document.querySelector(`.tab-btn[data-tab="${firstTab}"]`);
-                if (firstBtn) firstBtn.click();
-            });
-        });
-
-        /* -------------------------------------------------------
            AUDIT LOG PANEL
            ------------------------------------------------------- */
         const logOverlay = document.getElementById('audit-log-overlay');
@@ -5483,27 +5425,28 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260501-vz-ue"></script>
+    <script src="js/app.js?v=20260501-suspended-status"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
-    <script src="js/parsers/att-csv.js?v=20260501-vz-ue"></script>
-    <script src="js/parsers/verizon-zip.js?v=20260501-vz-ue"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260501-vz-ue"></script>
-    <script src="js/parsers/tmobile-csv.js?v=20260501-vz-ue"></script>
-    <script src="js/parsers/tangoe-csv.js?v=20260501-vz-ue"></script>
-    <script src="js/parsers/bill-pdf.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/zero-usage.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/usage-report.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/rate-plan.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/features.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/rate-plan-logger.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/plan-comparison.js?v=20260501-vz-ue"></script>
-    <script src="js/analyzers/cycle-trend.js?v=20260501-vz-ue"></script>
-    <script src="js/reporters/pdf-report.js?v=20260501-vz-ue"></script>
-    <script src="js/reporters/excel-report.js?v=20260501-vz-ue"></script>
-    <script src="js/views/sheet-view.js?v=20260501-vz-ue"></script>
-    <script src="js/views/discrepancy.js?v=20260501-vz-ue"></script>
-    <script src="js/log/audit-log.js?v=20260501-vz-ue"></script>
-    <script src="js/api/agent-api.js?v=20260501-vz-ue"></script>
+    <script src="js/parsers/att-csv.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/verizon-zip.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/tmobile-csv.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/tangoe-csv.js?v=20260501-suspended-status"></script>
+    <script src="js/parsers/bill-pdf.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/zero-usage.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/usage-report.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/rate-plan.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/features.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/rate-plan-logger.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/plan-comparison.js?v=20260501-suspended-status"></script>
+    <script src="js/analyzers/cycle-trend.js?v=20260501-suspended-status"></script>
+    <script src="js/reporters/pdf-report.js?v=20260501-suspended-status"></script>
+    <script src="js/reporters/excel-report.js?v=20260501-suspended-status"></script>
+    <!-- sheet-view.js + discrepancy.js intentionally removed — Sheet View
+         was retired (it didn't produce reliable comparisons against the
+         tool view). Only the production audit pipeline runs now. -->
+    <script src="js/log/audit-log.js?v=20260501-suspended-status"></script>
+    <script src="js/api/agent-api.js?v=20260501-suspended-status"></script>
 
 
     <!-- ============================================================
