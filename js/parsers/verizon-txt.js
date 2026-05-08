@@ -282,9 +282,17 @@ window.VerizonParser = (function () {
     }
 
     // ── Charges Detail index: per-line, per-cycle aggregates ─────────────────
-    // Used to detect device payment agreement installments and promo credits.
+    // Used to detect device payment agreement installments and promo credits,
+    // plus the per-line Monthly Charges breakdown (MRC / credits / add-ons).
     const dpaByLineCycle = {};      // {wireless: {cycle: {installment, dpaProgress}}}
     const promoByLineCycle = {};    // {wireless: {cycle: amount}}
+    // Monthly Charges breakdown — Verizon RDD's "Item Category = Monthly Charges"
+    // rows tag every line by Share Description: "Plan" (the MRC), "Feature"
+    // (an add-on like 5G UWB, Cloud, Detail Billing, etc.), or "NA"/blank
+    // (in which case a negative cost is a recurring credit such as
+    // "$10 Monthly Access Crdt 36 Mon"). Net of these three buckets must
+    // match wirelessSummary's monthlyCharges per line — that's the validation.
+    const monthlyByLineCycle = {};  // {wireless: {cycle: { mrcGross, mrcItems[], creditTotal, creditsItemized[], addonTotal, addonsItemized[] }}}
     if (chargesItems) {
       for (const item of chargesItems) {
         if (!item.wireless || item.wireless === 'N/A') continue;
@@ -302,6 +310,38 @@ window.VerizonParser = (function () {
         if (desc.includes('promo credit') || desc.includes('trade-in') || desc.includes('promotion credit')) {
           if (!promoByLineCycle[item.wireless]) promoByLineCycle[item.wireless] = {};
           promoByLineCycle[item.wireless][cycle] = (promoByLineCycle[item.wireless][cycle] || 0) + item.cost;
+        }
+
+        // Per-line Monthly Charges breakdown.
+        if ((item.itemCategory || '').toLowerCase() === 'monthly charges') {
+          if (!monthlyByLineCycle[item.wireless]) monthlyByLineCycle[item.wireless] = {};
+          if (!monthlyByLineCycle[item.wireless][cycle]) {
+            monthlyByLineCycle[item.wireless][cycle] = {
+              mrcGross: 0, mrcItems: [],
+              creditTotal: 0, creditsItemized: [],
+              addonTotal: 0, addonsItemized: [],
+            };
+          }
+          const bucket = monthlyByLineCycle[item.wireless][cycle];
+          const tag = (item.shareDescription || '').toLowerCase();
+          const lineItem = { description: (item.itemDescription || '').trim(), cost: item.cost };
+          if (tag === 'plan') {
+            bucket.mrcGross += item.cost;
+            bucket.mrcItems.push(lineItem);
+          } else if (tag === 'feature') {
+            bucket.addonTotal += item.cost;
+            bucket.addonsItemized.push(lineItem);
+          } else if (item.cost < 0) {
+            // Untagged ("NA"/blank) + negative = recurring monthly credit.
+            bucket.creditTotal += item.cost;
+            bucket.creditsItemized.push(lineItem);
+          } else {
+            // Untagged + non-negative = uncategorized monthly. Bucket as add-on
+            // so the breakdown still totals to net; the line-item description
+            // preserves what it actually was for the drill-down.
+            bucket.addonTotal += item.cost;
+            bucket.addonsItemized.push(lineItem);
+          }
         }
       }
     }
@@ -360,6 +400,22 @@ window.VerizonParser = (function () {
       // Latest-cycle device payment / promo info for the contract panel.
       const latestDpa = (dpaByLineCycle[wn] && dpaByLineCycle[wn][latest.billCycleDate]) || null;
       const latestPromo = (promoByLineCycle[wn] && promoByLineCycle[wn][latest.billCycleDate]) || 0;
+
+      // Latest-cycle Monthly Charges breakdown (MRC / credits / add-ons).
+      // Validation: computed (mrcGross + creditTotal + addonTotal) must equal
+      // wirelessSummary's monthlyCharges within a penny. When it doesn't, the
+      // Rate Plan Detail view surfaces it as a parser-coverage warning rather
+      // than silently presenting a wrong breakdown.
+      const latestMonthlyBreakdown = (monthlyByLineCycle[wn] && monthlyByLineCycle[wn][latest.billCycleDate]) || null;
+      const latestMrcGross         = latestMonthlyBreakdown ? latestMonthlyBreakdown.mrcGross : 0;
+      const latestCreditTotal      = latestMonthlyBreakdown ? latestMonthlyBreakdown.creditTotal : 0;
+      const latestAddonTotal       = latestMonthlyBreakdown ? latestMonthlyBreakdown.addonTotal : 0;
+      const latestMrcItems         = latestMonthlyBreakdown ? latestMonthlyBreakdown.mrcItems : [];
+      const latestCreditsItemized  = latestMonthlyBreakdown ? latestMonthlyBreakdown.creditsItemized : [];
+      const latestAddonsItemized   = latestMonthlyBreakdown ? latestMonthlyBreakdown.addonsItemized : [];
+      const latestNetMonthlyComputed = latestMrcGross + latestCreditTotal + latestAddonTotal;
+      const mrcBreakdownValid = Math.abs(latestNetMonthlyComputed - (latest.monthlyCharges || 0)) < 0.01;
+
       // hasActiveContract is true if any cycle had an installment posting.
       const hasAnyDpa = !!dpaByLineCycle[wn];
       // Remaining months: parse "X of Y" from the latest cycle's DPA line.
@@ -421,6 +477,17 @@ window.VerizonParser = (function () {
         equipmentCharges: latest.equipmentCharges,
         usagePurchaseCharges: latest.usagePurchaseCharges,
         mrc,
+
+        // Monthly-Charges breakdown (latest cycle).  Net of these three
+        // buckets is computed below and validated against latestMonthly.
+        latestMrcGross,
+        latestCreditTotal,
+        latestAddonTotal,
+        latestMrcItems,
+        latestCreditsItemized,
+        latestAddonsItemized,
+        latestNetMonthlyComputed,
+        mrcBreakdownValid,
 
         // Usage totals (90-day window across cycles in the upload).
         gbTotal: totalGB,
@@ -489,6 +556,17 @@ window.VerizonParser = (function () {
           equipmentCharges: 0,
           usagePurchaseCharges: 0,
           mrc: 0,
+
+          // No Monthly Charges in the bill window for ghost lines — empty
+          // breakdown matches the zero monthlyCharges, so it validates clean.
+          latestMrcGross: 0,
+          latestCreditTotal: 0,
+          latestAddonTotal: 0,
+          latestMrcItems: [],
+          latestCreditsItemized: [],
+          latestAddonsItemized: [],
+          latestNetMonthlyComputed: 0,
+          mrcBreakdownValid: true,
 
           gbTotal: 0,
           gbAvg: 0,

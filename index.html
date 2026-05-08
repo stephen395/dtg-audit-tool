@@ -3715,6 +3715,10 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         Rate Plans
                     </button>
+                    <button class="tab-btn" data-tab="rate-plan-detail">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        Rate Plan Detail
+                    </button>
                     <button class="tab-btn" data-tab="plan-comparison">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
                         Plan Comparison
@@ -4436,6 +4440,15 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- =============================================
+                     TAB: RATE PLAN DETAIL — per-line MRC / Credits / Add-ons / Net
+                     Rendered by js/views/rate-plan-detail.js. Verizon-only for v1
+                     (the breakdown comes from RDD's chargesDetail file).
+                     ============================================= -->
+                <div id="tab-rate-plan-detail" class="tab-panel">
+                    <div id="tab-rate-plan-detail-content"></div>
                 </div>
 
                 <!-- =============================================
@@ -5435,11 +5448,11 @@
          EXTERNAL JS MODULES
          ============================================================ -->
     <!-- ?v= bump forces the browser to refetch these when they change. -->
-    <script src="js/app.js?v=20260501-etf-gross-net"></script>
+    <script src="js/app.js?v=20260508-rp-detail"></script>
     <!-- Production audit modules — these MUST load or runAudit() breaks. -->
     <script src="js/parsers/att-csv.js?v=20260501-etf-gross-net"></script>
     <script src="js/parsers/verizon-zip.js?v=20260501-etf-gross-net"></script>
-    <script src="js/parsers/verizon-txt.js?v=20260501-etf-gross-net"></script>
+    <script src="js/parsers/verizon-txt.js?v=20260508-rp-detail"></script>
     <script src="js/parsers/tmobile-csv.js?v=20260501-etf-gross-net"></script>
     <script src="js/parsers/tangoe-csv.js?v=20260501-etf-gross-net"></script>
     <script src="js/parsers/bill-pdf.js?v=20260501-etf-gross-net"></script>
@@ -5450,6 +5463,7 @@
     <script src="js/analyzers/rate-plan-logger.js?v=20260501-etf-gross-net"></script>
     <script src="js/analyzers/plan-comparison.js?v=20260501-etf-gross-net"></script>
     <script src="js/analyzers/cycle-trend.js?v=20260501-etf-gross-net"></script>
+    <script src="js/views/rate-plan-detail.js?v=20260508-rp-detail"></script>
     <script src="js/reporters/pdf-report.js?v=20260501-etf-gross-net"></script>
     <script src="js/reporters/excel-report.js?v=20260501-etf-gross-net"></script>
     <!-- sheet-view.js + discrepancy.js intentionally removed — Sheet View
