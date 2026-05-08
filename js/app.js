@@ -396,6 +396,7 @@
       populateZeroUsageTable(auditData);
       populateUsageTable(auditData);
       populateRatePlanTable(auditData);
+      if (typeof populateRatePlanDetailTab === 'function') populateRatePlanDetailTab(auditData);
       populateFeaturesPanel(auditData);
       populatePlanComparison(auditData);
       populateTrendTab(auditData);
@@ -2207,6 +2208,7 @@
     if (typeof populateZeroUsageTable === 'function') populateZeroUsageTable(data);
     if (typeof populateUsageTable === 'function') populateUsageTable(data);
     if (typeof populateRatePlanTable === 'function') populateRatePlanTable(data);
+    if (typeof populateRatePlanDetailTab === 'function') populateRatePlanDetailTab(data);
     if (typeof populateFeaturesPanel === 'function') populateFeaturesPanel(data);
     if (typeof populatePlanComparison === 'function') populatePlanComparison(data);
     if (typeof populateTrendTab === 'function') populateTrendTab(data);
