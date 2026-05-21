@@ -2,6 +2,12 @@
 
 This rule governs which uploaded file is authoritative for which data field. It is the most important data-handling principle in this tool and is enforced by `mergeProfiles()` in `js/app.js`.
 
+## Required input
+
+**The bill PDF is required to run an audit.** The Run Audit button is disabled until a bill PDF is uploaded, and `DTG.runAudit()` hard-stops if called without one. CSV alone is ~40% wrong/unknowable on financial detail (see "Why this exists" below) — running an audit without the bill would silently produce inaccurate output, so the tool refuses.
+
+Usage / charges CSV is **recommended** (it's the authoritative source for usage and inventory — see the table below), but the audit will run on the bill PDF alone for small accounts.
+
 ## The Rule
 
 When both a **bill PDF** and **CSV reports** are uploaded for the same account:

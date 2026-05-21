@@ -3552,9 +3552,9 @@
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
                                         <span class="upload-zone-title-text">Usage / Charges Report</span>
-                                        <span class="badge optional">Required (or use PDF)</span>
+                                        <span class="badge optional">Recommended</span>
                                     </div>
-                                    <div class="upload-zone-desc">Primary billing and usage data. Accepts CSV or TXT format. Tangoe TCC exports auto-detected.</div>
+                                    <div class="upload-zone-desc">Authoritative source for usage (voice / data / SMS) and device inventory. Pair with the bill PDF for a full audit. Accepts CSV or TXT format. Tangoe TCC exports auto-detected.</div>
                                     <div class="upload-zone-action">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                         Drag &amp; drop or click to browse
@@ -3602,19 +3602,19 @@
                             </div>
                         </div>
 
-                        <!-- Zone 3: Bill PDF (OPTIONAL) -->
-                        <div id="zone-pdf" class="upload-zone" data-zone="pdf" data-required="false">
+                        <!-- Zone 3: Bill PDF (REQUIRED — Source-of-Truth Rule) -->
+                        <div id="zone-pdf" class="upload-zone" data-zone="pdf" data-required="true">
                             <input type="file" id="file-pdf" accept=".pdf,.PDF" style="display:none">
                             <div class="upload-zone-top">
-                                <div class="upload-zone-icon optional">
+                                <div class="upload-zone-icon required">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                                 </div>
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
                                         Bill PDF
-                                        <span class="badge optional">Optional</span>
+                                        <span class="badge required">Required</span>
                                     </div>
-                                    <div class="upload-zone-desc">Carrier bill in PDF format for summary extraction.</div>
+                                    <div class="upload-zone-desc">Authoritative source for per-line MRC, credits, add-ons, promos, installments, and line status (Source-of-Truth Rule). CSV alone is ~40% wrong/unknowable on financial detail.</div>
                                     <div class="upload-zone-action">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                         Drag &amp; drop or click to browse
@@ -3662,11 +3662,11 @@
                                 </li>
                             </ul>
 
-                            <button id="btn-run-audit" class="btn-run-audit" disabled>
+                            <button id="btn-run-audit" class="btn-run-audit" disabled title="Upload the bill PDF to enable the audit (Source-of-Truth Rule)">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                                 Run Audit
                             </button>
-                            <div class="upload-sidebar-hint">Upload a usage report OR bill PDF to begin. Small accounts can use PDF only.</div>
+                            <div class="upload-sidebar-hint">Bill PDF is required. Pair with a usage report for a full audit; bill-only works for small accounts.</div>
                         </div>
                     </div>
                 </div>
@@ -5171,13 +5171,27 @@
         function updateChecklist() {
             const hasZips = !!(state.files.zips && state.files.zips.length > 0);
             const hasUsage = !!state.files.usage || hasZips;
+            const hasPdf = !!state.files.pdf;
             document.getElementById('check-usage').classList.toggle('checked', hasUsage);
             document.getElementById('check-upgrade').classList.toggle('checked', !!state.files.upgrade);
-            document.getElementById('check-pdf').classList.toggle('checked', !!state.files.pdf);
+            document.getElementById('check-pdf').classList.toggle('checked', hasPdf);
 
             const btn = document.getElementById('btn-run-audit');
-            // Allow audit with EITHER usage CSV/zip OR bill PDF (for small accounts)
-            btn.disabled = !(hasUsage || state.files.pdf);
+            // Source-of-Truth Rule (see SOURCE_OF_TRUTH.md): the bill PDF is
+            // the authoritative source for financial detail and is REQUIRED
+            // to run an audit. CSV alone is ~40% wrong/unknowable on MRC,
+            // credits, add-ons, and line status — running without the bill
+            // would silently produce an inaccurate audit.
+            btn.disabled = !hasPdf;
+            if (btn.disabled) {
+                btn.title = hasUsage
+                    ? 'Bill PDF required — usage report alone is not enough for an accurate audit (Source-of-Truth Rule)'
+                    : 'Upload the bill PDF to enable the audit (Source-of-Truth Rule)';
+            } else {
+                btn.title = hasUsage
+                    ? 'Ready — hybrid audit (PDF + CSV) will run with full Source-of-Truth merge'
+                    : 'Ready — PDF-only audit (small-account mode); add a usage report for the most accurate result';
+            }
         }
 
         document.getElementById('btn-run-audit').addEventListener('click', () => {
