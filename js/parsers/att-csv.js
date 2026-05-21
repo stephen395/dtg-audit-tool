@@ -384,6 +384,10 @@ window.ATTParser = (function () {
         activationDate: contract.activationDate || '',
 
         doNotCancel,
+        // Source-of-Truth tag — see SOURCE_OF_TRUTH.md. When a bill PDF is
+        // also uploaded, mergeProfiles() in app.js may override financial
+        // fields with PDF values and tag profile.source = 'hybrid'.
+        source: 'csv',
       };
     }
 

@@ -273,7 +273,11 @@ window.TangoeParser = (function () {
         featureCharges: line.featureCharges,
         equipmentCharges: line.equipmentCharges,
         taxes: line.taxes,
-        surcharges: line.surcharges
+        surcharges: line.surcharges,
+        // Source-of-Truth tag — see SOURCE_OF_TRUTH.md. Tangoe billing
+        // exports cover financial detail only; uploading the carrier's
+        // bill PDF alongside lets mergeProfiles() reconcile on the rule.
+        source: 'csv'
       };
     }
 

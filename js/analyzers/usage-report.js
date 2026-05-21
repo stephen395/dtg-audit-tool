@@ -2,6 +2,12 @@
  * Usage Report Generator
  * Produces the full line inventory with usage data and device type breakdown.
  * Works with both CSV-parsed profiles and PDF-parsed profiles.
+ *
+ * SOURCE-OF-TRUTH: usage fields (gbTotal, minTotal, msgTotal) are CSV-authoritative
+ * when both sources are present; financial fields (mrc, ratePlan, totalCharges,
+ * equipment*, contractEnd) are PDF-authoritative. The merge step in app.js has
+ * already applied the rule by the time this runs — read fields directly off the
+ * profile. See SOURCE_OF_TRUTH.md.
  */
 
 window.UsageReportAnalyzer = (function () {

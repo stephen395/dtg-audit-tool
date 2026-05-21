@@ -521,6 +521,12 @@ window.VerizonParser = (function () {
 
         doNotCancel,
         monthCount: entries.length,
+        // Source-of-Truth tag — see SOURCE_OF_TRUTH.md. Verizon RDD exports
+        // do already itemize MRC/credits/add-ons (latestMrcItems, etc.),
+        // which is unusually rich for a CSV. The bill PDF still wins on
+        // disagreement — Verizon's CSV is a feed off the bill, but the
+        // bill is the legal artifact.
+        source: 'csv',
       };
     }
 
@@ -596,6 +602,8 @@ window.VerizonParser = (function () {
           doNotCancel: false,
           monthCount: 0,
           isGhost: true,  // marker — line in UE but never billed in our 3-month window
+          // Source-of-Truth tag — see SOURCE_OF_TRUTH.md
+          source: 'csv',
         };
       }
     }

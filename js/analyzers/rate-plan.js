@@ -2,6 +2,15 @@
  * Rate Plan Analyzer
  * Aggregates lines by rate plan, calculates per-plan metrics,
  * detects group discounts, and captures rate codes.
+ *
+ * SOURCE-OF-TRUTH: this analyzer reads ratePlan and mrc, both of which are
+ * PDF-authoritative when both sources are present. The merge step in app.js
+ * has already picked PDF over CSV for these fields. See SOURCE_OF_TRUTH.md.
+ *
+ * Note on MY BIZ PLAN and similar plans: the CSV may show no parseable MRC
+ * for these (plan name says "Unlimited after allowance"), so without a PDF
+ * those lines fall into the "Unknown" bucket. With a PDF, the merge fills
+ * in the $34 base rate from per-line detail and lines aggregate correctly.
  */
 
 window.RatePlanAnalyzer = (function () {

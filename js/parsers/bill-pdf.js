@@ -56,12 +56,25 @@ window.BillPDFParser = (function () {
   // ═══════════════════════════════════════════════════════
 
   function parseAccountInfo(pages) {
+    // Account info typically lives on pages 1–3. AutoPay/Paperless prompts
+    // may appear deeper (cover, payment stub, sometimes the back-of-bill
+    // promotional pages) — widen the search to pages 1–6 for those.
     const text = pages.slice(0, 3).join('\n');
+    const promoText = pages.slice(0, 6).join('\n');
     const info = {
       accountNumber: '', foundationAccount: '', invoice: '',
       accountName: '', billingContact: '', issueDate: '',
       billingPeriod: '', totalDue: 0, autoPayDate: '',
       lastBillAmount: 0,
+      // Source-of-Truth: AutoPay/Paperless enrollment + unlock value.
+      // From the Genserve audit — these discounts ($5/line on Verizon,
+      // $5/mo on AT&T, sometimes account-level pools worth $1000+/mo)
+      // are advertised on the bill cover but rarely flow into the CSV.
+      autoPay: false,
+      paperless: false,
+      autoPayUnlockPerLine: 0,
+      autoPayUnlockTotal: 0,
+      autoPayMessage: '',
     };
 
     const m = (re) => { const r = text.match(re); return r ? r[1].trim() : ''; };
@@ -79,7 +92,57 @@ window.BillPDFParser = (function () {
     if (lastMatch) info.lastBillAmount = parseFloat(lastMatch[1].replace(/,/g, ''));
 
     const apMatch = text.match(/scheduled\s*for[:\s]*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4})/i);
-    if (apMatch) info.autoPayDate = apMatch[1].trim();
+    if (apMatch) {
+      info.autoPayDate = apMatch[1].trim();
+      info.autoPay = true; // a scheduled date means the account IS enrolled
+    }
+
+    // Enrollment indicators — any of these mean AutoPay is already on.
+    if (!info.autoPay) {
+      const enrolledRe = /(?:enrolled\s+in\s+Auto\s*Pay|Auto\s*Pay\s+is\s+(?:on|active|enrolled))/i;
+      if (enrolledRe.test(promoText)) info.autoPay = true;
+    }
+
+    // Paperless billing — usually called out by name on the cover or stub.
+    if (/paper(?:less|-?free)\s+billing/i.test(promoText) ||
+        /enrolled\s+in\s+paper(?:less|-?free)/i.test(promoText)) {
+      info.paperless = true;
+    }
+
+    // Per-line unlock value — "Save $5.00 with AutoPay" style prompts.
+    // Match the dollar amount nearest to the AutoPay phrase.
+    const perLineRe = /Save\s*\$([\d.]+)(?:\s*\/\s*(?:line|mo))?[\s\w]*?(?:Auto\s*Pay|AutoPay|paper(?:less|-?free))/gi;
+    let plm;
+    while ((plm = perLineRe.exec(promoText)) !== null) {
+      const val = parseFloat(plm[1]);
+      if (!isNaN(val) && val > info.autoPayUnlockPerLine) {
+        info.autoPayUnlockPerLine = val;
+      }
+    }
+
+    // Account-level unlock total — "$X,XXX/mo if enrolled" big number on
+    // the cover. Common on Verizon Business bills. Capture the largest
+    // value mentioned next to an AutoPay phrase.
+    const totalUnlockRe = /\$([\d,]+(?:\.\d+)?)\s*(?:\/\s*mo)?\s*(?:if|when)\s+enrolled\s+in\s+(?:Auto\s*Pay|AutoPay)/gi;
+    let tum;
+    while ((tum = totalUnlockRe.exec(promoText)) !== null) {
+      const val = parseFloat(tum[1].replace(/,/g, ''));
+      if (!isNaN(val) && val > info.autoPayUnlockTotal) {
+        info.autoPayUnlockTotal = val;
+      }
+    }
+
+    // Build a human-readable surfaced message for the dashboard.
+    if (!info.autoPay && (info.autoPayUnlockPerLine > 0 || info.autoPayUnlockTotal > 0)) {
+      const bits = [];
+      if (info.autoPayUnlockPerLine > 0) bits.push('$' + info.autoPayUnlockPerLine.toFixed(2) + '/line');
+      if (info.autoPayUnlockTotal > 0)   bits.push('$' + info.autoPayUnlockTotal.toLocaleString() + '/mo account-level');
+      info.autoPayMessage = 'Enroll in AutoPay' + (info.paperless ? '' : ' + Paperless') +
+                            ' to unlock: ' + bits.join(' + ');
+    } else if (info.autoPay && !info.paperless && info.autoPayUnlockTotal > 0) {
+      info.autoPayMessage = 'AutoPay on — adding Paperless may unlock additional $' +
+                            info.autoPayUnlockTotal.toLocaleString() + '/mo';
+    }
 
     return info;
   }

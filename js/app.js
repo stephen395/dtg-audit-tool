@@ -49,6 +49,259 @@
   }
 
   // ═══════════════════════════════════════════════════════
+  // SOURCE-OF-TRUTH MERGE — see SOURCE_OF_TRUTH.md at repo root.
+  //
+  // When BOTH a bill PDF and CSV reports are uploaded, this merge runs
+  // before any analyzer touches the data. The rule:
+  //
+  //   PDF wins on financial detail (MRC, credits, add-ons, promos,
+  //   installments, line status, AutoPay/Paperless flags).
+  //
+  //   CSV wins on usage (voice/data/SMS) and device inventory.
+  //
+  // Field-by-field decisions live in PDF_AUTHORITATIVE_FIELDS and
+  // CSV_AUTHORITATIVE_FIELDS below. Disagreements are recorded so the
+  // Discrepancy view can surface them.
+  // ═══════════════════════════════════════════════════════
+
+  // The PDF carries the line-item breakdown (plan + credits + add-ons +
+  // status) that the CSV either summarizes incorrectly or doesn't expose
+  // at all. Field-tested on Genserve 804-line Verizon Business account:
+  // CSV alone was ~40% wrong/unknowable for these.
+  const PDF_AUTHORITATIVE_FIELDS = [
+    'mrc', 'monthlyCharges', 'ratePlan',
+    'totalCharges', 'activityCharges', 'oneTimeCharges',
+    'equipment', 'equipmentName', 'equipmentInstallment',
+    'equipmentFinanced', 'equipmentRemaining', 'equipmentEstablished',
+    'equipmentIMEI',
+    'contractEnd', 'contractEndDate', 'contractType', 'etf',
+    'status', 'lineStatus', 'hasActiveContract',
+    'latestMrcItems', 'latestCreditsItemized', 'latestAddonsItemized',
+    'autoPay', 'paperless', 'autoPayUnlock', 'paperlessUnlock',
+    'taxes', 'fees', 'latestTaxes', 'latestFees',
+    'remainingMonths',
+  ];
+
+  // CSV is authoritative for usage and inventory. The bill PDF's
+  // per-line usage logs exist but are noisy; the CSV's structured
+  // usage columns are the right input for an audit.
+  const CSV_AUTHORITATIVE_FIELDS = [
+    'gbTotal', 'gbAvg', 'kbTotal',
+    'minTotal', 'minAvg', 'totalMin90d',
+    'msgTotal', 'msgAvg', 'totalMsg90d',
+    'costCenter', 'udl', 'ban',
+  ];
+
+  function _isNonEmpty(v) {
+    return v !== undefined && v !== null && v !== '' &&
+           !(typeof v === 'number' && isNaN(v));
+  }
+
+  function _fieldsDisagree(a, b) {
+    if (!_isNonEmpty(a) || !_isNonEmpty(b)) return false;
+    const an = Number(a), bn = Number(b);
+    if (!isNaN(an) && !isNaN(bn)) return Math.abs(an - bn) > 0.01;
+    return String(a) !== String(b);
+  }
+
+  /**
+   * 7-pattern line-status classifier (Genserve edge-case taxonomy).
+   * See SOURCE_OF_TRUTH.md → "Line status — 7 patterns".
+   *
+   * Lines that LOOK identical on the CSV (all $0) are actually one of:
+   *   suspended | refund | cancelled-mid-cycle | one-time-only | inactive
+   * Misclassifying them drives the wrong recommendation (cancel vs keep
+   * vs migrate at peer rate).
+   *
+   * @param {Object} p - merged profile
+   * @returns {string} one of: active-full-month | active-prorated |
+   *   active-with-credits | suspended | refund | cancelled-mid-cycle |
+   *   one-time-only | inactive
+   */
+  function classifyLineStatus(p) {
+    if (!p) return 'inactive';
+
+    const status = String(p.status || '').toLowerCase();
+    const mrc = Number(p.mrc || p.latestMonthly || p.monthlyCharges || 0);
+    const total = Number(p.totalCharges || p.latestTotal || 0);
+    const oneTime = Number(p.activityCharges || p.latestActivity || 0) +
+                    (Array.isArray(p.oneTimeCharges)
+                      ? p.oneTimeCharges.reduce((s, o) => s + (Number(o.amount) || 0), 0)
+                      : 0);
+    const credits = Number(p.latestCreditTotal || 0);
+    const hasItemizedCredits = Array.isArray(p.latestCreditsItemized) &&
+                               p.latestCreditsItemized.length > 0;
+    const ratePlan = String(p.ratePlan || '').toLowerCase();
+
+    // 1. Refund — net total negative or explicit "No Price Plan" with negative MRC
+    if (total < -0.01 || mrc < -0.01 || ratePlan.includes('no price plan')) {
+      return 'refund';
+    }
+
+    // 2. Suspended — carrier-reported status OR known-suspended marker
+    if (status === 'suspended' || status === 'vacation' || p.isSuspended === true) {
+      return 'suspended';
+    }
+
+    // 3. Cancelled mid-cycle — flagged explicitly or partial-period proration
+    //    with cancellation marker
+    if (status === 'cancelled' || p.isCancelledMidCycle === true) {
+      return 'cancelled-mid-cycle';
+    }
+
+    // 4. One-time-only — MRC is zero but the line has equipment / activation
+    //    charges this cycle. Not really billable for monthly service.
+    if (mrc <= 0.01 && oneTime > 0.01) {
+      return 'one-time-only';
+    }
+
+    // 5. Active with credits — recurring credits are present on the plan
+    //    section (recurring promo, 15% off, etc.). Effective monthly is
+    //    lower than gross MRC — matters for migration math.
+    if (hasItemizedCredits || credits < -0.01) {
+      return 'active-with-credits';
+    }
+
+    // 6. Active prorated — proration flag or partial-period MRC
+    if (p.hasProration === true || p.isProrated === true) {
+      return 'active-prorated';
+    }
+
+    // 7. Active full-month — the default for a line with positive MRC and
+    //    no other special markers
+    if (mrc > 0.01) {
+      return 'active-full-month';
+    }
+
+    // Fallback — line exists but has no monthly charges and no signals
+    // pointing elsewhere. Could be a ghost line from Upgrade Eligibility
+    // with no billing rows.
+    return 'inactive';
+  }
+
+  window.DTG.classifyLineStatus = classifyLineStatus;
+
+  /**
+   * Merge CSV-parsed profiles with PDF-parsed profiles per the
+   * Source-of-Truth Rule. Returns merged profiles + the list of
+   * field-level disagreements (PDF vs CSV) for the Discrepancy view.
+   *
+   * Each returned profile carries:
+   *   - source: 'hybrid' | 'pdf' | 'csv'
+   *   - sourceMap: { [field]: 'pdf' | 'csv' | 'pdf-fallback' | 'csv-fallback' | 'csv-derived' }
+   *
+   * Analyzers should read fields directly; the merge already applied
+   * the rule. If you need to defensively check, consult sourceMap.
+   *
+   * @param {Object} csvProfiles - { wirelessNumber: profileObj } from CSV parsers
+   * @param {Object} pdfProfiles - { wirelessNumber: profileObj } from BillPDFParser
+   * @returns {{ profiles: Object, discrepancies: Array, summary: Object }}
+   */
+  function mergeProfiles(csvProfiles, pdfProfiles) {
+    const merged = {};
+    const discrepancies = [];
+    const allWireless = new Set([
+      ...Object.keys(csvProfiles || {}),
+      ...Object.keys(pdfProfiles || {}),
+    ]);
+    let bothCount = 0, csvOnlyCount = 0, pdfOnlyCount = 0;
+
+    for (const wn of allWireless) {
+      const csv = (csvProfiles && csvProfiles[wn]) || null;
+      const pdf = (pdfProfiles && pdfProfiles[wn]) || null;
+
+      // Start with CSV as the base, layer PDF on top of any matching keys.
+      // PDF/CSV authoritative rules below will then re-apply the correct
+      // value per field.
+      const profile = { ...(csv || {}), ...(pdf || {}) };
+      const sourceMap = {};
+      if (csv) for (const k of Object.keys(csv)) sourceMap[k] = 'csv';
+      if (pdf) for (const k of Object.keys(pdf)) sourceMap[k] = 'pdf';
+
+      if (csv && pdf) {
+        bothCount++;
+
+        // PDF wins on financial fields
+        for (const field of PDF_AUTHORITATIVE_FIELDS) {
+          if (_isNonEmpty(pdf[field])) {
+            if (_fieldsDisagree(csv[field], pdf[field])) {
+              discrepancies.push({
+                wireless: wn, field,
+                csvValue: csv[field], pdfValue: pdf[field],
+                winner: 'pdf',
+                reason: 'PDF is authoritative for ' + field + ' (financial detail)',
+              });
+            }
+            profile[field] = pdf[field];
+            sourceMap[field] = 'pdf';
+          } else if (_isNonEmpty(csv[field])) {
+            profile[field] = csv[field];
+            sourceMap[field] = 'csv-fallback';
+          }
+        }
+
+        // CSV wins on usage + inventory fields
+        for (const field of CSV_AUTHORITATIVE_FIELDS) {
+          if (_isNonEmpty(csv[field])) {
+            if (_fieldsDisagree(pdf[field], csv[field])) {
+              discrepancies.push({
+                wireless: wn, field,
+                csvValue: csv[field], pdfValue: pdf[field],
+                winner: 'csv',
+                reason: 'CSV is authoritative for ' + field + ' (usage / inventory)',
+              });
+            }
+            profile[field] = csv[field];
+            sourceMap[field] = 'csv';
+          } else if (_isNonEmpty(pdf[field])) {
+            profile[field] = pdf[field];
+            sourceMap[field] = 'pdf-fallback';
+          }
+        }
+
+        // Recompute zeroUsage from the CSV-authoritative usage values
+        // (the PDF may have set it from its own noisier usage extraction).
+        const dt = String(profile.deviceType || '').toLowerCase();
+        const isDataDevice = dt.includes('tablet') || dt.includes('hotspot') ||
+                             dt.includes('mifi')   || dt.includes('jetpack') ||
+                             dt.includes('connected') || dt.includes('broadband');
+        const dataZero  = (Number(profile.gbTotal)  || 0) === 0;
+        const voiceZero = (Number(profile.minTotal) || 0) === 0;
+        const textZero  = (Number(profile.msgTotal) || 0) === 0;
+        profile.zeroUsage = isDataDevice ? dataZero : (dataZero && voiceZero && textZero);
+        sourceMap.zeroUsage = 'csv-derived';
+      } else if (csv) {
+        csvOnlyCount++;
+      } else if (pdf) {
+        pdfOnlyCount++;
+      }
+
+      profile.source = (csv && pdf) ? 'hybrid' : (pdf ? 'pdf' : 'csv');
+      profile.sourceMap = sourceMap;
+
+      // Classify into the 7-pattern Genserve taxonomy so analyzers can
+      // tell suspended vs refund vs one-time-only apart (they all look
+      // like $0 on the CSV).
+      profile.lineStatus = classifyLineStatus(profile);
+
+      merged[wn] = profile;
+    }
+
+    const summary = {
+      totalLines: allWireless.size,
+      hybridLines: bothCount,
+      csvOnlyLines: csvOnlyCount,
+      pdfOnlyLines: pdfOnlyCount,
+      discrepancyCount: discrepancies.length,
+    };
+
+    return { profiles: merged, discrepancies, summary };
+  }
+
+  // Expose for tests / debugging
+  window.DTG.mergeProfiles = mergeProfiles;
+
+  // ═══════════════════════════════════════════════════════
   // MAIN AUDIT PIPELINE
   // ═══════════════════════════════════════════════════════
   window.DTG.runAudit = async function (uiState) {
@@ -99,19 +352,26 @@
 
         profiles = billData.lineProfiles;
         const bm = billData.billMeta || {};
+        const ai = billData.accountInfo || {};
         meta = {
           source: 'pdf',
-          accountNumber: billData.accountInfo.accountNumber,
-          accountName: billData.accountInfo.accountName,
-          foundationAccount: billData.accountInfo.foundationAccount,
-          invoice: billData.accountInfo.invoice,
-          issueDate: billData.accountInfo.issueDate,
-          totalDue: billData.accountInfo.totalDue,
+          accountNumber: ai.accountNumber,
+          accountName: ai.accountName,
+          foundationAccount: ai.foundationAccount,
+          invoice: ai.invoice,
+          issueDate: ai.issueDate,
+          totalDue: ai.totalDue,
           lastBillAmount: bm.lastBillAmount || 0,
           autoPayDate: bm.autoPayDate || '',
           billingPeriods: bm.billingPeriod ? [bm.billingPeriod] : [],
           billingCycles: bm.billingPeriod ? [bm.billingPeriod] : [],
           pdfPages: billData.pageCount,
+          // AutoPay / Paperless unlock data — see SOURCE_OF_TRUTH.md
+          autoPay: ai.autoPay,
+          paperless: ai.paperless,
+          autoPayUnlockPerLine: ai.autoPayUnlockPerLine,
+          autoPayUnlockTotal: ai.autoPayUnlockTotal,
+          autoPayMessage: ai.autoPayMessage,
         };
 
         console.log('[AUDIT] PDF profiles built:', Object.keys(profiles).length);
@@ -244,6 +504,74 @@
         );
       }
 
+      // ── HYBRID MODE: parse the bill PDF and merge with CSV profiles ──
+      // Per SOURCE_OF_TRUTH.md: when both inputs are present, PDF wins on
+      // financial fields, CSV wins on usage. Runs BEFORE analyzers so every
+      // downstream consumer sees the canonical merged profiles.
+      let billData = null;
+      if (uiState.files.pdf && !pdfOnlyMode) {
+        DTG.updateProcessingProgress(55);
+        DTG.updateProcessingStatus('Reading bill PDF for source-of-truth merge...');
+        try {
+          billData = await window.BillPDFParser.parse(uiState.files.pdf, (current, total) => {
+            const pct = 55 + Math.round((current / total) * 8);
+            DTG.updateProcessingProgress(pct);
+            DTG.updateProcessingStatus(`Reading bill PDF... page ${current} of ${total}`);
+          });
+          console.log('[AUDIT] Hybrid PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier,
+                       '→', Object.keys(billData.lineProfiles || {}).length, 'PDF profiles');
+
+          if (billData.lineProfiles && Object.keys(billData.lineProfiles).length > 0) {
+            const mergeResult = mergeProfiles(profiles, billData.lineProfiles);
+            profiles = mergeResult.profiles;
+
+            // Hang the discrepancies + merge summary off meta for the
+            // Discrepancy view / status indicators to pick up.
+            meta.source = 'hybrid';
+            meta.pdfCsvDiscrepancies = mergeResult.discrepancies;
+            meta.mergeSummary = mergeResult.summary;
+            meta.pdfPages = billData.pageCount;
+            if (billData.billMeta) {
+              meta.pdfBillingPeriod = billData.billMeta.billingPeriod;
+              meta.pdfTotalDue = billData.billMeta.totalDue;
+              meta.pdfAutoPayDate = billData.billMeta.autoPayDate;
+            }
+            // Surface the AutoPay / Paperless unlock data captured by
+            // parseAccountInfo so the dashboard can render a "free money"
+            // recommendation when the account isn't yet enrolled.
+            if (billData.accountInfo) {
+              meta.autoPay = billData.accountInfo.autoPay;
+              meta.paperless = billData.accountInfo.paperless;
+              meta.autoPayUnlockPerLine = billData.accountInfo.autoPayUnlockPerLine;
+              meta.autoPayUnlockTotal = billData.accountInfo.autoPayUnlockTotal;
+              meta.autoPayMessage = billData.accountInfo.autoPayMessage;
+              if (billData.accountInfo.autoPayMessage) {
+                console.log('[AUDIT] AutoPay unlock:', billData.accountInfo.autoPayMessage);
+              }
+            }
+            console.log('[AUDIT] Hybrid merge:',
+                         mergeResult.summary.hybridLines, 'lines on both,',
+                         mergeResult.summary.csvOnlyLines, 'CSV-only,',
+                         mergeResult.summary.pdfOnlyLines, 'PDF-only,',
+                         mergeResult.summary.discrepancyCount, 'field-level discrepancies');
+          } else {
+            console.warn('[AUDIT] Hybrid PDF parsed but no line profiles extracted — keeping CSV-only data');
+          }
+        } catch (e) {
+          console.warn('[AUDIT] Hybrid PDF parse failed, falling back to CSV-only:', e.message);
+        }
+      }
+
+      // Apply the 7-pattern line-status classifier to every profile. In
+      // hybrid mode mergeProfiles() already did this; in single-source
+      // mode we still want every line tagged so analyzers can branch on
+      // suspended / refund / one-time-only without ambiguity.
+      for (const wn of Object.keys(profiles)) {
+        if (!profiles[wn].lineStatus) {
+          profiles[wn].lineStatus = classifyLineStatus(profiles[wn]);
+        }
+      }
+
       DTG.updateProcessingProgress(65);
       DTG.updateProcessingStatus('Analyzing zero usage lines...');
 
@@ -300,18 +628,9 @@
         }
       });
 
-      // Parse bill PDF if provided (for CSV+PDF mode, PDF was already parsed in PDF-only mode)
-      let billData = null;
-      if (uiState.files.pdf && !pdfOnlyMode) {
-        DTG.updateProcessingProgress(85);
-        DTG.updateProcessingStatus('Reading bill PDF...');
-        try {
-          billData = await window.BillPDFParser.parse(uiState.files.pdf);
-          console.log('[AUDIT] Bill PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier);
-        } catch (e) {
-          console.warn('[AUDIT] Bill PDF error:', e.message);
-        }
-      }
+      // Bill PDF parsing now happens earlier (before analyzers) so the
+      // Source-of-Truth merge can run on profiles BEFORE they're analyzed.
+      // billData was populated in the hybrid block above; no late parse needed.
 
       DTG.updateProcessingProgress(90);
       DTG.updateProcessingStatus('Rendering results...');
