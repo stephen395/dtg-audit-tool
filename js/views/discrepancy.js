@@ -319,11 +319,141 @@
     return _lastReport;
   }
 
+  /**
+   * Render the PDF-vs-CSV source-conflicts panel. These are
+   * field-level disagreements detected by mergeProfiles() in app.js
+   * when a bill PDF and CSV reports were both uploaded for the same
+   * account. See SOURCE_OF_TRUTH.md.
+   *
+   * Unlike the Tool-vs-Sheet discrepancies above, source conflicts
+   * are auto-resolved by the rule (PDF wins on financials, CSV wins
+   * on usage) — this panel just surfaces what was overridden so the
+   * user can spot bad CSV data or PDF extraction errors.
+   *
+   * Appends to `container` rather than replacing — sits below the
+   * existing Tool-vs-Sheet discrepancy table.
+   *
+   * @param {Array}  discrepancies — meta.pdfCsvDiscrepancies from app.js
+   * @param {Object} mergeSummary  — meta.mergeSummary  from app.js
+   * @param {HTMLElement} container — same DOM container as render()
+   */
+  function renderSourceConflicts(discrepancies, mergeSummary, container) {
+    if (!container) return;
+    discrepancies = discrepancies || [];
+    mergeSummary = mergeSummary || {};
+
+    // Section header
+    const hdr = document.createElement('h3');
+    hdr.textContent = 'Source Conflicts (PDF vs CSV)';
+    hdr.style.cssText = 'margin:24px 0 8px 0;font-size:16px;font-weight:700;color:#1e3a8a;';
+    container.appendChild(hdr);
+
+    // Summary banner
+    const banner = document.createElement('div');
+    banner.style.cssText = 'padding:10px 14px;margin-bottom:12px;border-radius:6px;font-size:13px;' +
+      'background:#e0f2fe;border:1px solid #38bdf8;color:#075985;';
+    const totalLines  = mergeSummary.totalLines  || 0;
+    const hybridLines = mergeSummary.hybridLines || 0;
+    const csvOnly     = mergeSummary.csvOnlyLines || 0;
+    const pdfOnly     = mergeSummary.pdfOnlyLines || 0;
+    banner.innerHTML =
+      '<strong>Merge summary:</strong> ' + totalLines + ' total lines · ' +
+      hybridLines + ' on both PDF + CSV · ' +
+      csvOnly + ' CSV-only · ' +
+      pdfOnly + ' PDF-only · ' +
+      '<strong>' + discrepancies.length + '</strong> field-level disagreements.' +
+      '<br><span style="font-size:12px;color:#0c4a6e;">' +
+      'Per the Source-of-Truth Rule, PDF wins on financial fields (MRC, credits, ' +
+      'add-ons, installments, status); CSV wins on usage (GB / minutes / messages). ' +
+      'Conflicts below were auto-resolved — review only if a winner looks wrong.' +
+      '</span>';
+    container.appendChild(banner);
+
+    if (discrepancies.length === 0) {
+      const none = document.createElement('p');
+      none.textContent = pdfOnly === totalLines || csvOnly === totalLines
+        ? 'Only one source was uploaded — no PDF-vs-CSV conflicts to surface. Upload both a bill PDF and CSV reports to enable hybrid mode.'
+        : 'No field-level conflicts — PDF and CSV agree on every per-line value.';
+      none.style.cssText = 'color:#155724;font-style:italic;font-size:13px;';
+      container.appendChild(none);
+      return;
+    }
+
+    // Group by field for a more readable view
+    const byField = {};
+    discrepancies.forEach(function (d) {
+      if (!byField[d.field]) byField[d.field] = { count: 0, winner: d.winner, samples: [] };
+      byField[d.field].count++;
+      if (byField[d.field].samples.length < 5) {
+        byField[d.field].samples.push(d);
+      }
+    });
+
+    const tableWrap = document.createElement('div');
+    tableWrap.style.cssText = 'overflow-x:auto;';
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    ['Field', 'Lines affected', 'Winner', 'Sample disagreements'].forEach(function (col) {
+      const th = document.createElement('th');
+      th.textContent = col;
+      th.style.cssText = 'padding:8px 10px;border-bottom:2px solid #cbd5e1;text-align:left;background:#f1f5f9;white-space:nowrap;';
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    Object.keys(byField).sort(function (a, b) { return byField[b].count - byField[a].count; })
+      .forEach(function (field) {
+        const info = byField[field];
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-bottom:1px solid #e2e8f0;background:#f8fafc;';
+
+        const tdField = document.createElement('td');
+        tdField.textContent = field;
+        tdField.style.cssText = 'padding:8px 10px;font-weight:600;font-family:monospace;';
+
+        const tdCount = document.createElement('td');
+        tdCount.textContent = info.count;
+        tdCount.style.cssText = 'padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;';
+
+        const tdWinner = document.createElement('td');
+        tdWinner.textContent = info.winner.toUpperCase();
+        tdWinner.style.cssText = 'padding:8px 10px;font-weight:700;color:' +
+          (info.winner === 'pdf' ? '#1e40af' : '#0f766e') + ';';
+
+        const tdSamples = document.createElement('td');
+        tdSamples.style.cssText = 'padding:8px 10px;font-size:12px;color:#475569;';
+        tdSamples.innerHTML = info.samples.map(function (s) {
+          return '<code>' + s.wireless + '</code>: pdf=' +
+                 (s.pdfValue == null ? '∅' : s.pdfValue) + ' / csv=' +
+                 (s.csvValue == null ? '∅' : s.csvValue);
+        }).join('<br>') + (info.count > info.samples.length
+          ? '<br><em>… and ' + (info.count - info.samples.length) + ' more</em>'
+          : '');
+
+        tr.appendChild(tdField);
+        tr.appendChild(tdCount);
+        tr.appendChild(tdWinner);
+        tr.appendChild(tdSamples);
+        tbody.appendChild(tr);
+      });
+
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    container.appendChild(tableWrap);
+  }
+
   // ─── Expose on window ──────────────────────────────────────────────
 
   window.DiscrepancyEngine = {
     compare: compare,
     render: render,
+    renderSourceConflicts: renderSourceConflicts,
     getDiscrepancies: getDiscrepancies
   };
 

@@ -115,6 +115,8 @@ window.TMobileParser = (function () {
           etf: 0,
           doNotCancel: false,
           monthCount: 1,
+          // Source-of-Truth tag — see SOURCE_OF_TRUTH.md
+          source: 'csv',
         };
       }
     }
