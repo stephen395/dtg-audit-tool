@@ -688,6 +688,26 @@
         }
       }
 
+      // ── PDF-vs-CSV Source Conflicts (Source-of-Truth Rule output) ──
+      // Surface the field-level disagreements mergeProfiles() recorded
+      // when both bill PDF and CSV were uploaded. Conflicts were already
+      // auto-resolved (PDF wins financials, CSV wins usage) — this panel
+      // just lets the user spot bad data on either side.
+      if (window.DiscrepancyEngine && window.DiscrepancyEngine.renderSourceConflicts) {
+        const discEl = document.getElementById('discrepancy-content');
+        if (discEl && (meta.pdfCsvDiscrepancies || meta.mergeSummary)) {
+          try {
+            window.DiscrepancyEngine.renderSourceConflicts(
+              meta.pdfCsvDiscrepancies || [],
+              meta.mergeSummary || {},
+              discEl
+            );
+          } catch (e) {
+            console.error('[AUDIT] Source-conflict render error:', e);
+          }
+        }
+      }
+
       // Store for exports
       const auditData = {
         carrier, clientName,
@@ -909,12 +929,65 @@
       snapshot,
     });
 
+    // ── AutoPay / Paperless unlock banner ──
+    // Populated by parseAccountInfo() in bill-pdf.js when the bill cover
+    // advertises a discount the account isn't yet claiming. Up to
+    // $1,255/mo on the May Genserve bill — invisible to the CSV. The
+    // banner is dashboard-prominent because it's free money the user
+    // can act on immediately.
+    renderAutoPayUnlockBanner(data);
+
     // Mark body so the empty-state CSS hides and the dashboard grid shows.
     document.body.classList.add('has-audit-data');
     document.body.classList.add('tabs-redesigned');
 
     // Populate redesigned summary bands on every other tab.
     populateTabBands(data, { totalSpend, lineCount, inv, snapshot });
+  }
+
+  /**
+   * Inject (or update) an AutoPay / Paperless unlock banner above the
+   * dashboard hero card. Reads from data.meta.autoPayMessage which was
+   * set by parseAccountInfo() in bill-pdf.js. No-ops if message empty.
+   */
+  function renderAutoPayUnlockBanner(data) {
+    const id = 'autopay-unlock-banner';
+    let banner = document.getElementById(id);
+    const meta = (data && data.meta) || {};
+    const msg = meta.autoPayMessage;
+
+    if (!msg) {
+      if (banner) banner.style.display = 'none';
+      return;
+    }
+
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = id;
+      banner.style.cssText =
+        'margin:0 0 16px 0;padding:14px 18px;border-radius:8px;' +
+        'background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);' +
+        'border:1px solid #f59e0b;color:#78350f;' +
+        'display:flex;align-items:center;gap:12px;' +
+        'font-size:14px;font-weight:500;' +
+        'box-shadow:0 1px 3px rgba(0,0,0,0.08);';
+      // Insert above the first hero card in the dashboard grid.
+      const hero = document.querySelector('.dash-card.hero');
+      if (hero && hero.parentNode) {
+        hero.parentNode.insertBefore(banner, hero);
+      } else {
+        // Fallback — append to the dashboard tab container if the hero
+        // isn't around (e.g., tab not yet rendered).
+        const dashTab = document.getElementById('dashboard') ||
+                        document.querySelector('.dash-grid');
+        if (dashTab) dashTab.insertBefore(banner, dashTab.firstChild);
+      }
+    }
+
+    banner.style.display = '';
+    const icon = '<span style="font-size:22px;">$</span>';
+    const label = '<strong>AutoPay unlock:</strong> ';
+    banner.innerHTML = icon + '<div>' + label + msg + '</div>';
   }
 
   // ═══════════════════════════════════════════════════════
