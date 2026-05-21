@@ -306,6 +306,25 @@
   // ═══════════════════════════════════════════════════════
   window.DTG.runAudit = async function (uiState) {
     const DTG = window.DTG;
+
+    // ── Source-of-Truth Rule gate ──
+    // The bill PDF is the authoritative source for per-line MRC,
+    // credits, add-ons, promos, installments, and line status. CSV
+    // alone is ~40% wrong/unknowable on financial detail. Running an
+    // audit without the bill produces silently-inaccurate output, so
+    // we hard-stop here even if the UI gate was bypassed.
+    // See SOURCE_OF_TRUTH.md.
+    if (!uiState || !uiState.files || !uiState.files.pdf) {
+      const msg = 'Bill PDF is required to run an audit. Upload the carrier ' +
+                  'bill in PDF format — the audit reads per-line MRC, credits, ' +
+                  'add-ons, promos, and line status from the bill (CSV alone ' +
+                  'is ~40% wrong on financial detail). See SOURCE_OF_TRUTH.md.';
+      console.error('[AUDIT] Blocked:', msg);
+      if (typeof DTG.showProcessing === 'function') DTG.showProcessing(false);
+      if (typeof alert === 'function') alert(msg);
+      throw new Error('Bill PDF required (Source-of-Truth Rule)');
+    }
+
     DTG.showProcessing(true);
 
     try {
