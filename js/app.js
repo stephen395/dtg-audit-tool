@@ -306,6 +306,114 @@
   // Expose for tests / debugging
   window.DTG.mergeProfiles = mergeProfiles;
 
+  /**
+   * Cross-cycle credit recurrence classifier (Stephen May-22).
+   *
+   * When the user uploads 2-3 monthly bill PDFs, we can tell recurring
+   * credits (turnkey, plan savings, monthly access discount) from
+   * one-time credits (courtesy credit, migration adjustment, equipment
+   * rebate) with real evidence instead of a pattern heuristic.
+   *
+   * Logic:
+   *   For each wireless number, look at every unique credit description
+   *   across all cycles. A description present in ALL cycles where the
+   *   line was billed → recurring. Present in only SOME cycles → one-time.
+   *
+   * Mutates the LATEST cycle's lineProfiles in place:
+   *   - For each item in monthlyBreakdown that's a credit/discount, sets
+   *     item.isRecurring based on cross-cycle evidence
+   *   - Updates item.type to credit-recurring or credit-onetime
+   *   - Recomputes the profile's recurringCreditsTotal / oneTimeCreditsTotal
+   *     / netPlanMRC / mrc to reflect the new classification
+   *
+   * @param {Array} allBillData - parsed bill data, sorted oldest → newest
+   */
+  function reclassifyCreditsAcrossCycles(allBillData) {
+    if (!Array.isArray(allBillData) || allBillData.length < 2) return;
+    const cycles = allBillData.map(b => b.lineProfiles || {});
+    const newest = cycles[cycles.length - 1];
+
+    // Build a per-wireless presence map: { wn: { creditDesc: Set<cycleIdx> } }
+    const presence = {};
+    const linePresence = {}; // { wn: Set<cycleIdx> } — which cycles billed this line
+
+    cycles.forEach((profilesAtCycle, idx) => {
+      for (const [wn, p] of Object.entries(profilesAtCycle)) {
+        if (!linePresence[wn]) linePresence[wn] = new Set();
+        linePresence[wn].add(idx);
+
+        if (!presence[wn]) presence[wn] = {};
+        const items = p.monthlyBreakdown || [];
+        for (const item of items) {
+          if (item.type === 'credit-recurring' || item.type === 'credit-onetime' ||
+              item.type === 'discount-recurring') {
+            const key = item.description.toLowerCase().trim();
+            if (!presence[wn][key]) presence[wn][key] = new Set();
+            presence[wn][key].add(idx);
+          }
+        }
+      }
+    });
+
+    // Mutate the newest cycle's profiles with the corrected classification
+    let reclassified = 0;
+    for (const [wn, p] of Object.entries(newest)) {
+      const items = p.monthlyBreakdown || [];
+      if (items.length === 0) continue;
+
+      const cyclesBilled = (linePresence[wn] || new Set()).size;
+      let recurringCreditsTotal = 0;
+      let oneTimeCreditsTotal = 0;
+      let grossPlanMRC = 0;
+
+      for (const item of items) {
+        // Recompute gross independently in case it drifted
+        if (item.type === 'plan' || item.type === 'addon') {
+          grossPlanMRC += Number(item.amount) || 0;
+        }
+        // Only credit/discount items get reclassified
+        if (item.type !== 'credit-recurring' &&
+            item.type !== 'credit-onetime' &&
+            item.type !== 'discount-recurring') continue;
+
+        const key = item.description.toLowerCase().trim();
+        const cyclesSeen = (presence[wn][key] || new Set()).size;
+        const wasRecurring = (item.type === 'credit-recurring' || item.type === 'discount-recurring');
+        // Recurring iff this credit appeared in EVERY cycle the line was billed
+        const isRecurring = cyclesBilled > 0 && cyclesSeen === cyclesBilled;
+
+        if (isRecurring !== wasRecurring) {
+          reclassified++;
+          item.type = isRecurring
+            ? (item.type === 'discount-recurring' ? 'discount-recurring' : 'credit-recurring')
+            : 'credit-onetime';
+          item.isRecurring = isRecurring;
+          item.crossCycleEvidence = { cyclesSeen, cyclesBilled };
+        } else {
+          // Tag with evidence even if classification unchanged, so the UI can show confidence
+          item.crossCycleEvidence = { cyclesSeen, cyclesBilled };
+        }
+
+        const amt = Number(item.amount) || 0;
+        if (isRecurring) recurringCreditsTotal += amt;
+        else             oneTimeCreditsTotal   += amt;
+      }
+
+      // Re-derive aggregate fields from the reclassified breakdown
+      p.grossPlanMRC = grossPlanMRC || p.grossPlanMRC || 0;
+      p.recurringCreditsTotal = recurringCreditsTotal;
+      p.oneTimeCreditsTotal = oneTimeCreditsTotal;
+      p.netPlanMRC = p.grossPlanMRC + recurringCreditsTotal;
+      // `mrc` is what analyzers read — keep it net of recurring credits
+      p.mrc = p.netPlanMRC;
+      p.monthlyCharges = p.netPlanMRC;
+      p.crossCycleClassified = true;
+    }
+
+    console.log('[AUDIT] Cross-cycle reclassification: changed', reclassified, 'credit/discount items across', Object.keys(newest).length, 'lines');
+  }
+  window.DTG.reclassifyCreditsAcrossCycles = reclassifyCreditsAcrossCycles;
+
   // ═══════════════════════════════════════════════════════
   // MAIN AUDIT PIPELINE
   // ═══════════════════════════════════════════════════════
@@ -528,22 +636,60 @@
         );
       }
 
-      // ── HYBRID MODE: parse the bill PDF and merge with CSV profiles ──
+      // ── HYBRID MODE: parse the bill PDF(s) and merge with CSV profiles ──
       // Per SOURCE_OF_TRUTH.md: when both inputs are present, PDF wins on
       // financial fields, CSV wins on usage. Runs BEFORE analyzers so every
       // downstream consumer sees the canonical merged profiles.
+      //
+      // Multi-PDF mode (Stephen May-22): when 2-3 monthly bills are uploaded,
+      // we parse all of them and cross-reference credit descriptions across
+      // cycles. A credit description that appears in every cycle's per-line
+      // breakdown is recurring; otherwise one-time. The LATEST cycle (newest
+      // issue date) is used as the canonical merge source for everything else.
       let billData = null;
-      if (uiState.files.pdf && !pdfOnlyMode) {
+      let allBillData = []; // ordered oldest → newest after sort
+      const uploadedPdfs = (uiState.files.pdfs && uiState.files.pdfs.length > 0)
+        ? uiState.files.pdfs
+        : (uiState.files.pdf ? [uiState.files.pdf] : []);
+      if (uploadedPdfs.length > 0 && !pdfOnlyMode) {
         DTG.updateProcessingProgress(55);
-        DTG.updateProcessingStatus('Reading bill PDF for source-of-truth merge...');
+        DTG.updateProcessingStatus(uploadedPdfs.length === 1
+          ? 'Reading bill PDF for source-of-truth merge...'
+          : `Reading ${uploadedPdfs.length} bill PDFs (cross-cycle credit recurrence)...`);
         try {
-          billData = await window.BillPDFParser.parse(uiState.files.pdf, (current, total) => {
-            const pct = 55 + Math.round((current / total) * 8);
-            DTG.updateProcessingProgress(pct);
-            DTG.updateProcessingStatus(`Reading bill PDF... page ${current} of ${total}`);
+          // Parse each uploaded PDF in turn
+          for (let pi = 0; pi < uploadedPdfs.length; pi++) {
+            const pdfFile = uploadedPdfs[pi];
+            const parsed = await window.BillPDFParser.parse(pdfFile, (current, total) => {
+              // Each PDF gets an equal slice of the 55-63% progress range
+              const sliceStart = 55 + Math.round((pi / uploadedPdfs.length) * 8);
+              const sliceLen = 8 / uploadedPdfs.length;
+              const pct = sliceStart + Math.round((current / total) * sliceLen);
+              DTG.updateProcessingProgress(pct);
+              DTG.updateProcessingStatus(
+                `Bill ${pi + 1}/${uploadedPdfs.length} — page ${current}/${total}`
+              );
+            });
+            console.log('[AUDIT] Bill PDF', pi + 1, 'parsed:', parsed.pageCount, 'pages, carrier:', parsed.carrier,
+                         '→', Object.keys(parsed.lineProfiles || {}).length, 'PDF profiles');
+            allBillData.push(parsed);
+          }
+
+          // Sort oldest → newest by issue date. The newest cycle is what
+          // analyzers see; the older ones only feed cross-cycle classification.
+          allBillData.sort((a, b) => {
+            const da = Date.parse(((a.accountInfo || {}).issueDate) || '') || 0;
+            const db = Date.parse(((b.accountInfo || {}).issueDate) || '') || 0;
+            return da - db;
           });
-          console.log('[AUDIT] Hybrid PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier,
-                       '→', Object.keys(billData.lineProfiles || {}).length, 'PDF profiles');
+          billData = allBillData[allBillData.length - 1]; // newest
+
+          // Reclassify recurring vs one-time credits using cross-cycle evidence
+          if (allBillData.length >= 2 && billData.lineProfiles) {
+            reclassifyCreditsAcrossCycles(allBillData);
+            console.log('[AUDIT] Cross-cycle credit reclassification applied across',
+                         allBillData.length, 'cycles');
+          }
 
           if (billData.lineProfiles && Object.keys(billData.lineProfiles).length > 0) {
             const mergeResult = mergeProfiles(profiles, billData.lineProfiles);

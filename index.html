@@ -3602,19 +3602,19 @@
                             </div>
                         </div>
 
-                        <!-- Zone 3: Bill PDF (REQUIRED — Source-of-Truth Rule) -->
+                        <!-- Zone 3: Bill PDF (REQUIRED — Source-of-Truth Rule) — accepts 1-3 PDFs for cross-cycle credit recurrence -->
                         <div id="zone-pdf" class="upload-zone" data-zone="pdf" data-required="true">
-                            <input type="file" id="file-pdf" accept=".pdf,.PDF" style="display:none">
+                            <input type="file" id="file-pdf" accept=".pdf,.PDF" multiple style="display:none">
                             <div class="upload-zone-top">
                                 <div class="upload-zone-icon required">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                                 </div>
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
-                                        Bill PDF
+                                        Bill PDFs (up to 3)
                                         <span class="badge required">Required</span>
                                     </div>
-                                    <div class="upload-zone-desc">Authoritative source for per-line MRC, credits, add-ons, promos, installments, and line status (Source-of-Truth Rule). CSV alone is ~40% wrong/unknowable on financial detail.</div>
+                                    <div class="upload-zone-desc">Authoritative source for per-line MRC, credits, add-ons, promos, installments, and line status. Upload 1–3 monthly bills — with 3 cycles the tool can tell recurring credits (turnkey, plan savings) from one-time credits with confidence; with 1 it falls back to a pattern heuristic.</div>
                                     <div class="upload-zone-action">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                         Drag &amp; drop or click to browse
@@ -3627,6 +3627,8 @@
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                         </button>
                                     </div>
+                                    <!-- Multi-file list for when 2-3 PDFs are uploaded. Hidden until len > 1. -->
+                                    <div class="file-multi-list" style="display:none;flex-direction:column;gap:6px;margin-top:8px;"></div>
                                 </div>
                             </div>
                         </div>
@@ -3658,7 +3660,7 @@
                                     <span class="check-icon">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                     </span>
-                                    Bill PDF uploaded
+                                    <span id="check-pdf-label">Bill PDF uploaded</span>
                                 </li>
                             </ul>
 
@@ -5122,10 +5124,98 @@
             updateChecklist();
         }
 
+        // Render the multi-file list inside zone-pdf (3-bill upload).
+        function renderPdfList() {
+            const zoneEl = zones.pdf.zone;
+            const listEl = zoneEl.querySelector('.file-multi-list');
+            const singleInfo = zoneEl.querySelector('.file-info');
+            if (!listEl) return;
+
+            const pdfs = state.files.pdfs || [];
+
+            // 0 PDFs → show nothing; reset zone
+            if (pdfs.length === 0) {
+                listEl.style.display = 'none';
+                listEl.innerHTML = '';
+                if (singleInfo) singleInfo.style.display = 'none';
+                zoneEl.classList.remove('has-file', 'required', 'optional');
+                zoneEl.querySelector('.file-name').textContent = '';
+                zoneEl.querySelector('.file-size').textContent = '';
+                return;
+            }
+
+            // 1 PDF → use the single .file-info row (matches the original look)
+            if (pdfs.length === 1) {
+                listEl.style.display = 'none';
+                listEl.innerHTML = '';
+                if (singleInfo) singleInfo.style.display = '';
+                zoneEl.classList.add('has-file', 'required');
+                zoneEl.querySelector('.file-name').textContent = pdfs[0].name;
+                zoneEl.querySelector('.file-size').textContent = formatFileSize(pdfs[0].size);
+                return;
+            }
+
+            // 2+ PDFs → render the multi-file list
+            if (singleInfo) singleInfo.style.display = 'none';
+            zoneEl.classList.add('has-file', 'required');
+            listEl.style.display = 'flex';
+            listEl.innerHTML = pdfs.map((f, i) => `
+                <div class="file-info" data-pdf-idx="${i}" style="display:flex;align-items:center;gap:8px;background:rgba(34,197,94,0.06);padding:6px 10px;border-radius:6px;border:1px solid rgba(34,197,94,0.2);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="flex-shrink:0;color:var(--success)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span class="file-name" style="flex:1;">Cycle ${i + 1}: ${f.name}</span>
+                    <span class="file-size" style="color:var(--text-secondary);font-size:11px;">${formatFileSize(f.size)}</span>
+                    <button class="pdf-remove" data-pdf-idx="${i}" title="Remove bill" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:2px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+            `).join('');
+
+            listEl.querySelectorAll('.pdf-remove').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.dataset.pdfIdx);
+                    state.files.pdfs.splice(idx, 1);
+                    // Keep state.files.pdf aliased to pdfs[0] (latest after sort = newest)
+                    state.files.pdf = state.files.pdfs[0] || null;
+                    renderPdfList();
+                    updateChecklist();
+                });
+            });
+        }
+
+        // For multi-bill mode: append PDF Files to state.files.pdfs.
+        // 3-bill upload feeds the credit recurrence classifier — a credit
+        // description appearing in all 3 cycles is recurring; <3 is one-time.
+        function addPdfs(fileList) {
+            if (!state.files.pdfs) state.files.pdfs = [];
+            for (const f of fileList) {
+                if (!/\.pdf$/i.test(f.name)) {
+                    console.warn('[Upload] Ignoring non-PDF in bill zone:', f.name);
+                    continue;
+                }
+                // Cap at 3 — more than that is wasted parse time
+                if (state.files.pdfs.length >= 3) {
+                    console.warn('[Upload] Bill PDF cap is 3 — ignoring extra:', f.name);
+                    continue;
+                }
+                // Dedup by name+size
+                const dupe = state.files.pdfs.find(x => x.name === f.name && x.size === f.size);
+                if (dupe) continue;
+                state.files.pdfs.push(f);
+            }
+            // Keep state.files.pdf aliased to pdfs[0] so the runAudit guard
+            // and any backward-compat consumers keep working.
+            state.files.pdf = state.files.pdfs[0] || null;
+            renderPdfList();
+            updateChecklist();
+        }
+
         function resetUploadZones() {
             Object.keys(zones).forEach(key => setFile(key, null));
             state.files.zips = [];
+            state.files.pdfs = [];
             renderZipList();
+            renderPdfList();
         }
 
         Object.keys(zones).forEach(key => {
@@ -5142,6 +5232,9 @@
                 if (key === 'usage' && zone.classList.contains('zip-mode')) {
                     addZips(input.files);
                     input.value = ''; // clear so re-picking the same file fires change
+                } else if (key === 'pdf') {
+                    addPdfs(input.files);
+                    input.value = '';
                 } else {
                     setFile(key, input.files[0]);
                 }
@@ -5156,15 +5249,25 @@
                 if (e.dataTransfer.files.length === 0) return;
                 if (key === 'usage' && zone.classList.contains('zip-mode')) {
                     addZips(e.dataTransfer.files);
+                } else if (key === 'pdf') {
+                    addPdfs(e.dataTransfer.files);
                 } else {
                     setFile(key, e.dataTransfer.files[0]);
                 }
             });
 
-            // Remove button
+            // Remove button (single-file zones, and PDF zone when only 1 PDF is uploaded)
             zone.querySelector('.file-remove').addEventListener('click', (e) => {
                 e.stopPropagation();
-                setFile(key, null);
+                if (key === 'pdf') {
+                    // Clear the whole pdfs array in single-file mode
+                    state.files.pdfs = [];
+                    state.files.pdf = null;
+                    renderPdfList();
+                    updateChecklist();
+                } else {
+                    setFile(key, null);
+                }
             });
         });
 
@@ -5174,10 +5277,20 @@
         function updateChecklist() {
             const hasZips = !!(state.files.zips && state.files.zips.length > 0);
             const hasUsage = !!state.files.usage || hasZips;
-            const hasPdf = !!state.files.pdf;
+            const pdfCount = (state.files.pdfs && state.files.pdfs.length) || (state.files.pdf ? 1 : 0);
+            const hasPdf = pdfCount > 0;
             document.getElementById('check-usage').classList.toggle('checked', hasUsage);
             document.getElementById('check-upgrade').classList.toggle('checked', !!state.files.upgrade);
             document.getElementById('check-pdf').classList.toggle('checked', hasPdf);
+
+            // Reflect how many cycles are loaded — at 3 the recurrence classifier is at full strength
+            const pdfLabel = document.getElementById('check-pdf-label');
+            if (pdfLabel) {
+                if (pdfCount === 0) pdfLabel.textContent = 'Bill PDF uploaded';
+                else if (pdfCount === 1) pdfLabel.textContent = 'Bill PDF uploaded (1 cycle — credit recurrence by heuristic)';
+                else if (pdfCount === 2) pdfLabel.textContent = 'Bill PDFs uploaded (2 cycles — partial cross-cycle credit evidence)';
+                else pdfLabel.textContent = 'Bill PDFs uploaded (3 cycles — full credit recurrence classification)';
+            }
 
             const btn = document.getElementById('btn-run-audit');
             // Source-of-Truth Rule (see SOURCE_OF_TRUTH.md): the bill PDF is
