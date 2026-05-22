@@ -4083,12 +4083,15 @@
                                         <th data-sort="user">User Name <span class="sort-icon">&#9650;</span></th>
                                         <th data-sort="device">Device <span class="sort-icon">&#9650;</span></th>
                                         <th data-sort="plan">Rate Plan <span class="sort-icon">&#9650;</span></th>
-                                        <th data-sort="cost" class="number">MRC <span class="sort-icon">&#9650;</span></th>
+                                        <th data-sort="cost" class="number" title="Net plan MRC (gross plan - recurring credits)">Net MRC <span class="sort-icon">&#9650;</span></th>
                                         <th>Contract?</th>
                                         <th data-sort="contract-end">Contract End <span class="sort-icon">&#9650;</span></th>
                                         <th data-sort="action">Action <span class="sort-icon">&#9650;</span></th>
                                         <th>Reason</th>
-                                        <th data-sort="savings" class="number">Savings/mo <span class="sort-icon">&#9650;</span></th>
+                                        <th data-sort="savings-plan" class="number" title="Rate plan savings (the line's net MRC if cancelled / suspended portion)">Save: Rate Plan <span class="sort-icon">&#9650;</span></th>
+                                        <th data-sort="savings-device" class="number" title="Device installment savings (zero unless line is cancelled and device is paid off)">Save: Device <span class="sort-icon">&#9650;</span></th>
+                                        <th data-sort="savings-fees" class="number" title="Company fees + government taxes that go away with the line">Save: Fees+Taxes <span class="sort-icon">&#9650;</span></th>
+                                        <th data-sort="savings-total" class="number" title="Total monthly savings = Rate Plan + Device + Fees+Taxes">Save: Total <span class="sort-icon">&#9650;</span></th>
                                     </tr>
                                 </thead>
                                 <tbody id="zero-usage-tbody">

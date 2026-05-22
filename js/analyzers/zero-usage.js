@@ -147,6 +147,13 @@ window.ZeroUsageAnalyzer = (function () {
         }
       }
 
+      // ── Savings breakdown (Stephen May-22 ask) ──
+      // Split monthlySavings into 4 components so the savings table can show
+      // Rate Plan / Device / Fees+Taxes / Total side-by-side. Clients shouldn't
+      // see one number that mixes plan + taxes + installments — that's confusing
+      // when they're trying to forecast budget.
+      annotateSavingsBreakdown(rec, p);
+
       results.push(rec);
     }
 
@@ -158,6 +165,47 @@ window.ZeroUsageAnalyzer = (function () {
     results.sort((a, b) => (order[a.action] || 9) - (order[b.action] || 9) || (b.monthlySavings - a.monthlySavings));
 
     return results;
+  }
+
+  /**
+   * Split a recommendation's monthlySavings into per-component values so
+   * the UI can show 4 columns: Rate Plan / Device / Fees+Taxes / Total.
+   *
+   * For each action:
+   *   CANCEL: plan + device + fees/taxes all go away
+   *   CANCEL SOON / CANCEL + PAY ETF: same as CANCEL once it completes
+   *   SUSPEND: plan reduces to $10/mo suspension fee; device + fees stay
+   *   KEEP / KEEP SUSPENDED: $0 each
+   */
+  function annotateSavingsBreakdown(rec, p) {
+    const ratePlan = Number(p.netPlanMRC || p.mrc || p.latestMonthly || 0);
+    const device = Number(p.monthlyInstallment || p.equipment || p.equipmentCharge || 0);
+    const taxes  = Number(p.latestTaxes || p.taxes || p.govTaxes || 0);
+    const fees   = Number(p.latestFees  || p.fees  || p.companyFees || 0);
+    const feesAndTaxes = taxes + fees;
+    const action = rec.action || '';
+
+    let savingsRatePlan = 0, savingsDevice = 0, savingsFeesAndTaxes = 0;
+
+    if (action === 'CANCEL' || action === 'CANCEL SOON' || action === 'CANCEL + PAY ETF') {
+      savingsRatePlan = ratePlan;
+      savingsDevice = device;
+      savingsFeesAndTaxes = feesAndTaxes;
+    } else if (action === 'SUSPEND') {
+      // Suspension drops the plan to ~$10/mo; device + fees stay
+      savingsRatePlan = Math.max(0, ratePlan - SUSPENSION_FEE);
+      savingsDevice = 0;
+      savingsFeesAndTaxes = 0;
+    }
+    // KEEP / KEEP SUSPENDED → all zeros (already initialised)
+
+    rec.savingsRatePlan = savingsRatePlan;
+    rec.savingsDevice = savingsDevice;
+    rec.savingsFeesAndTaxes = savingsFeesAndTaxes;
+    rec.savingsTotal = savingsRatePlan + savingsDevice + savingsFeesAndTaxes;
+    // Keep .monthlySavings populated for backward compat (older UI/exports),
+    // but normalize it to the 4-component total so the numbers agree.
+    rec.monthlySavings = rec.savingsTotal || rec.monthlySavings || 0;
   }
 
   /**
@@ -179,6 +227,10 @@ window.ZeroUsageAnalyzer = (function () {
       totalOneTimeCost: results.reduce((s, r) => s + r.oneTimeCost, 0),
       outOfContract: results.filter(r => !r.hasActiveContract).length,
       inContract: results.filter(r => r.hasActiveContract).length,
+      // 4-column breakdown of total savings
+      totalSavingsRatePlan: results.reduce((s, r) => s + (r.savingsRatePlan || 0), 0),
+      totalSavingsDevice: results.reduce((s, r) => s + (r.savingsDevice || 0), 0),
+      totalSavingsFeesAndTaxes: results.reduce((s, r) => s + (r.savingsFeesAndTaxes || 0), 0),
     };
   }
 

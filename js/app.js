@@ -1906,6 +1906,14 @@
         ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
         : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
 
+      // Stephen May-22: 4-column savings breakdown so the client can see
+      // Rate Plan + Device + Fees+Taxes separately, then Total. No more
+      // single mystery savings number.
+      const sPlan = r.savingsRatePlan || 0;
+      const sDev  = r.savingsDevice || 0;
+      const sFee  = r.savingsFeesAndTaxes || 0;
+      const sTot  = r.savingsTotal || r.monthlySavings || 0;
+
       html += `<tr>
         <td>${r.wireless}</td>
         <td>${r.userName}</td>
@@ -1916,16 +1924,25 @@
         <td>${r.contractEnd || 'N/A'}</td>
         <td style="color:${actionColor};font-weight:600">${r.action}</td>
         <td style="font-size:11px;color:#a1a1aa;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-        <td class="number" style="color:#22c55e;font-weight:600">${fmtMoney(r.monthlySavings || 0)}</td>
+        <td class="number" style="color:#22c55e">${fmtMoney(sPlan)}</td>
+        <td class="number" style="color:#22c55e">${fmtMoney(sDev)}</td>
+        <td class="number" style="color:#a1a1aa">${fmtMoney(sFee)}</td>
+        <td class="number" style="color:#22c55e;font-weight:700">${fmtMoney(sTot)}</td>
       </tr>`;
     }
 
     // Total row
+    const sumPlan = data.zeroUsageResults.reduce((s,r) => s + (r.savingsRatePlan || 0), 0);
+    const sumDev  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsDevice || 0), 0);
+    const sumFee  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsFeesAndTaxes || 0), 0);
     html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
       <td colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
       <td class="number">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
       <td colspan="4"></td>
-      <td class="number" style="color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+      <td class="number" style="color:#22c55e">${fmtMoney(sumPlan)}</td>
+      <td class="number" style="color:#22c55e">${fmtMoney(sumDev)}</td>
+      <td class="number" style="color:#a1a1aa">${fmtMoney(sumFee)}</td>
+      <td class="number" style="color:#22c55e;font-weight:700">${fmtMoney(zu.totalMonthlySavings)}</td>
     </tr>`;
 
     tbody.innerHTML = html;
@@ -1945,12 +1962,15 @@
         <th style="padding:8px 10px">User Name</th>
         <th style="padding:8px 10px">Device</th>
         <th style="padding:8px 10px">Rate Plan</th>
-        <th style="padding:8px 10px;text-align:right">MRC</th>
+        <th style="padding:8px 10px;text-align:right" title="Net plan MRC (gross plan - recurring credits)">Net MRC</th>
         <th style="padding:8px 10px;text-align:center">Contract?</th>
         <th style="padding:8px 10px">Contract End</th>
         <th style="padding:8px 10px">Action</th>
         <th style="padding:8px 10px">Reason</th>
-        <th style="padding:8px 10px;text-align:right">Savings/mo</th>
+        <th style="padding:8px 10px;text-align:right" title="Rate plan savings">Save: Plan</th>
+        <th style="padding:8px 10px;text-align:right" title="Device installment savings">Save: Device</th>
+        <th style="padding:8px 10px;text-align:right" title="Fees + taxes savings">Save: Fees+Taxes</th>
+        <th style="padding:8px 10px;text-align:right" title="Total monthly savings">Save: Total</th>
       </tr></thead><tbody>`;
 
     for (const r of data.zeroUsageResults) {
@@ -1958,6 +1978,11 @@
       const contractBadge = r.hasActiveContract
         ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
         : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
+
+      const sPlan = r.savingsRatePlan || 0;
+      const sDev  = r.savingsDevice || 0;
+      const sFee  = r.savingsFeesAndTaxes || 0;
+      const sTot  = r.savingsTotal || r.monthlySavings || 0;
 
       html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
         <td style="padding:6px 10px;font-variant-numeric:tabular-nums">${r.wireless}</td>
@@ -1969,16 +1994,25 @@
         <td style="padding:6px 10px">${r.contractEnd || 'N/A'}</td>
         <td style="padding:6px 10px;color:${actionColor};font-weight:600">${r.action}</td>
         <td style="padding:6px 10px;font-size:11px;color:#a1a1aa;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">${fmtMoney(r.monthlySavings || 0)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-variant-numeric:tabular-nums">${fmtMoney(sPlan)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-variant-numeric:tabular-nums">${fmtMoney(sDev)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#a1a1aa;font-variant-numeric:tabular-nums">${fmtMoney(sFee)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-weight:700;font-variant-numeric:tabular-nums">${fmtMoney(sTot)}</td>
       </tr>`;
     }
 
     // Total row
+    const sumPlan = data.zeroUsageResults.reduce((s,r) => s + (r.savingsRatePlan || 0), 0);
+    const sumDev  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsDevice || 0), 0);
+    const sumFee  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsFeesAndTaxes || 0), 0);
     html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
       <td style="padding:8px 10px" colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
       <td style="padding:8px 10px;text-align:right">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
       <td colspan="4"></td>
-      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(sumPlan)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(sumDev)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#a1a1aa">${fmtMoney(sumFee)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e;font-weight:700">${fmtMoney(zu.totalMonthlySavings)}</td>
     </tr>`;
 
     html += '</tbody></table></div>';
