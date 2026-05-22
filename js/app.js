@@ -570,6 +570,45 @@
           console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
           console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
 
+          // ── AT&T file-type auto-routing (Stephen May-22) ──
+          // The "detail report" / "equipment report" / "eligibility report"
+          // are all the same AT&T CSV — different names depending on which
+          // export menu you used. Header-based detection routes the file to
+          // the right slot no matter which upload zone the user dropped it in,
+          // so we never silently lose the contract data.
+          if (carrier === 'att' && window.ATTParser && window.ATTParser.detectFileType) {
+            const usageType   = parsedUsage   ? window.ATTParser.detectFileType(parsedUsage.headers)   : null;
+            const upgradeType = parsedUpgrade ? window.ATTParser.detectFileType(parsedUpgrade.headers) : null;
+
+            // Case 1: usage slot has a contract file
+            if (usageType === 'contract' && (!parsedUpgrade || upgradeType === 'billing')) {
+              console.log('[AUDIT] Auto-routing: usage-slot file looks like AT&T contract/detail report — swapping');
+              const swap = parsedUsage; parsedUsage = parsedUpgrade; parsedUpgrade = swap;
+            }
+            // Case 2: upgrade slot has a billing file (and usage slot is empty)
+            else if (upgradeType === 'billing' && !parsedUsage) {
+              console.log('[AUDIT] Auto-routing: upgrade-slot file looks like AT&T billing CSV — promoting to usage slot');
+              parsedUsage = parsedUpgrade; parsedUpgrade = null;
+            }
+            // Case 3: BOTH slots have contract files (user uploaded the
+            // detail report twice by mistake) — keep only one
+            else if (usageType === 'contract' && upgradeType === 'contract') {
+              console.warn('[AUDIT] Both slots contain AT&T contract files — dropping the usage-slot copy');
+              parsedUsage = null;
+            }
+            // Case 4: BOTH slots have billing files — keep the usage slot
+            else if (usageType === 'billing' && upgradeType === 'billing') {
+              console.warn('[AUDIT] Both slots contain AT&T billing files — dropping the upgrade-slot copy');
+              parsedUpgrade = null;
+            }
+
+            if (parsedUpgrade) {
+              console.log('[AUDIT] After auto-route: contract data available from upgrade slot ✓');
+            } else {
+              console.log('[AUDIT] After auto-route: no contract CSV — Contracts tab will fall back to bill-PDF derivation');
+            }
+          }
+
           // Auto-detect Tangoe TCC format regardless of selected carrier
           const isTangoe = carrier === 'tangoe' ||
             (parsedUsage && window.TangoeParser && window.TangoeParser.detect(parsedUsage.headers));

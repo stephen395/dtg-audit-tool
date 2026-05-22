@@ -3573,7 +3573,7 @@
                             </div>
                         </div>
 
-                        <!-- Zone 2: Upgrade Eligibility (OPTIONAL) -->
+                        <!-- Zone 2: Eligibility / Detail / Equipment Report (RECOMMENDED for AT&T) -->
                         <div id="zone-upgrade" class="upload-zone" data-zone="upgrade" data-required="false">
                             <input type="file" id="file-upgrade" accept=".csv,.txt,.CSV,.TXT" style="display:none">
                             <div class="upload-zone-top">
@@ -3582,10 +3582,10 @@
                                 </div>
                                 <div class="upload-zone-info">
                                     <div class="upload-zone-title">
-                                        Upgrade Eligibility / Contract Report
-                                        <span class="badge optional">Optional</span>
+                                        Eligibility / Detail / Equipment Report
+                                        <span class="badge optional" title="Without this file, the Contracts tab falls back to deriving fields from the bill PDF (less authoritative)">Recommended</span>
                                     </div>
-                                    <div class="upload-zone-desc">Device upgrade eligibility and contract details. CSV or TXT format.</div>
+                                    <div class="upload-zone-desc">AT&amp;T calls this the <strong>"detail report"</strong> or <strong>"equipment report"</strong> on Premier — carries per-line contract type, contract end date, monthly installment, device make/model, IMEI, upgrade eligibility, UDLs. <em>Auto-detected by headers — if you drop it in the wrong zone the tool will move it for you.</em></div>
                                     <div class="upload-zone-action">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                         Drag &amp; drop or click to browse
