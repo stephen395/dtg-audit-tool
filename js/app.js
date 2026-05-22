@@ -85,6 +85,11 @@
     'grossPlanMRC', 'netPlanMRC',
     'recurringCreditsTotal', 'oneTimeCreditsTotal',
     'monthlyBreakdown', 'addons',
+    // Contracts-tab fields derived from bill PDF equipment data. AT&T's
+    // billing CSV doesn't carry these — only the Upgrade Eligibility CSV
+    // (which is optional) or the bill PDF.
+    'monthlyInstallment', 'deviceMake', 'deviceModel',
+    'contractEndDerivedFromBill',
   ];
 
   // CSV is authoritative for usage and inventory. The bill PDF's
@@ -564,6 +569,45 @@
           console.log('[AUDIT] Carrier:', carrier);
           console.log('[AUDIT] Usage file:', parsedUsage ? parsedUsage.rows.length + ' rows, headers: ' + parsedUsage.headers.slice(0, 5).join(', ') : 'none');
           console.log('[AUDIT] Upgrade file:', parsedUpgrade ? parsedUpgrade.rows.length + ' rows, headers: ' + parsedUpgrade.headers.slice(0, 5).join(', ') : 'none');
+
+          // ── AT&T file-type auto-routing (Stephen May-22) ──
+          // The "detail report" / "equipment report" / "eligibility report"
+          // are all the same AT&T CSV — different names depending on which
+          // export menu you used. Header-based detection routes the file to
+          // the right slot no matter which upload zone the user dropped it in,
+          // so we never silently lose the contract data.
+          if (carrier === 'att' && window.ATTParser && window.ATTParser.detectFileType) {
+            const usageType   = parsedUsage   ? window.ATTParser.detectFileType(parsedUsage.headers)   : null;
+            const upgradeType = parsedUpgrade ? window.ATTParser.detectFileType(parsedUpgrade.headers) : null;
+
+            // Case 1: usage slot has a contract file
+            if (usageType === 'contract' && (!parsedUpgrade || upgradeType === 'billing')) {
+              console.log('[AUDIT] Auto-routing: usage-slot file looks like AT&T contract/detail report — swapping');
+              const swap = parsedUsage; parsedUsage = parsedUpgrade; parsedUpgrade = swap;
+            }
+            // Case 2: upgrade slot has a billing file (and usage slot is empty)
+            else if (upgradeType === 'billing' && !parsedUsage) {
+              console.log('[AUDIT] Auto-routing: upgrade-slot file looks like AT&T billing CSV — promoting to usage slot');
+              parsedUsage = parsedUpgrade; parsedUpgrade = null;
+            }
+            // Case 3: BOTH slots have contract files (user uploaded the
+            // detail report twice by mistake) — keep only one
+            else if (usageType === 'contract' && upgradeType === 'contract') {
+              console.warn('[AUDIT] Both slots contain AT&T contract files — dropping the usage-slot copy');
+              parsedUsage = null;
+            }
+            // Case 4: BOTH slots have billing files — keep the usage slot
+            else if (usageType === 'billing' && upgradeType === 'billing') {
+              console.warn('[AUDIT] Both slots contain AT&T billing files — dropping the upgrade-slot copy');
+              parsedUpgrade = null;
+            }
+
+            if (parsedUpgrade) {
+              console.log('[AUDIT] After auto-route: contract data available from upgrade slot ✓');
+            } else {
+              console.log('[AUDIT] After auto-route: no contract CSV — Contracts tab will fall back to bill-PDF derivation');
+            }
+          }
 
           // Auto-detect Tangoe TCC format regardless of selected carrier
           const isTangoe = carrier === 'tangoe' ||
@@ -2892,7 +2936,24 @@
     const totalCredit  = activeContracts.reduce((s, p) => s + (p.deviceCredit || 0), 0);
     const totalNet     = totalInstallment - totalCredit;
 
+    // Honesty band — if any of the active contracts were derived from the
+    // bill PDF's equipment data (i.e. no Upgrade Eligibility CSV uploaded),
+    // surface a small disclosure so the client knows ETF here = device
+    // balance, contract end is derived, and so on.
+    const billDerivedCount = activeContracts.filter(p => p.contractEndDerivedFromBill).length;
+    const billDerivedNote = billDerivedCount > 0
+      ? `<div style="margin-bottom:8px;padding:8px 12px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:6px;font-size:11px;color:var(--text-secondary);">
+          <strong style="color:#a5b4fc;">${billDerivedCount} of ${activeContracts.length}</strong> contracts here are derived from the bill PDF's equipment section
+          (no Upgrade Eligibility CSV was uploaded). For those lines: <strong>contract end date</strong>
+          = bill's "Established on" + term length from the <em>"X of Y"</em> installment counter,
+          and <strong>ETF</strong> is plugged from the device balance remaining on the bill (AT&amp;T
+          does NOT publish a real ETF figure — device balance is the closest proxy).
+          Upload the Upgrade Eligibility / Contract CSV for more authoritative values.
+        </div>`
+      : '';
+
     html += `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin-bottom:6px;">Active contracts</div>
+      ${billDerivedNote}
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
         <strong>ETF</strong> = monthly device charge <em>before</em> credits × months remaining. Promotional credits do not reduce the early-termination fee.
       </div>

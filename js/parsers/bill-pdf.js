@@ -559,6 +559,112 @@ window.BillPDFParser = (function () {
     return details;
   }
 
+  // ─── AT&T equipment → contract field derivation (Stephen May-22) ───
+  // The bill PDF gives us equipment data per line (installment "X of Y",
+  // monthly charge, established date, balance remaining). The Contracts
+  // tab reads contract fields with different names (monthlyInstallment,
+  // remainingMonths, contractEnd, etf, deviceMake, deviceModel). This
+  // helper bridges the two so the Contracts tab populates for every
+  // line that has an installment plan on the bill — no Upgrade Eligibility
+  // CSV required.
+  //
+  // Honest about the limits:
+  //   - contractEnd is DERIVED from equipmentEstablished + term length, not
+  //     stated on the bill. If the line has been on the plan past its term
+  //     or was extended, the derivation can be off.
+  //   - etf is plugged from equipmentRemaining (device balance). AT&T does
+  //     NOT publish a real ETF on the bill — device balance is the closest
+  //     proxy. A tooltip on the Contracts tab will note this for AT&T.
+
+  function _parseEstablishedDate(s) {
+    if (!s) return null;
+    // Accept forms like "Apr 12, 2024", "April 12 2024", "Apr 2024"
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+    // Try month-only "Apr 2024"
+    const m = String(s).match(/(\w+)\s+(\d{4})/);
+    if (m) {
+      const d2 = new Date(m[1] + ' 1, ' + m[2]);
+      if (!isNaN(d2.getTime())) return d2;
+    }
+    return null;
+  }
+
+  function _splitDeviceName(name) {
+    if (!name) return { make: '', model: '' };
+    const known = ['APPLE', 'SAMSUNG', 'GOOGLE', 'MOTOROLA', 'LG', 'SONY', 'NOKIA', 'ONEPLUS', 'OPPO', 'XIAOMI', 'HUAWEI'];
+    const upper = name.toUpperCase().trim();
+    for (const k of known) {
+      if (upper.startsWith(k)) {
+        return { make: k, model: name.slice(k.length).trim() };
+      }
+    }
+    // Fallback: first word = make
+    const parts = name.trim().split(/\s+/);
+    return { make: parts[0] || '', model: parts.slice(1).join(' ') };
+  }
+
+  /**
+   * Derive contract fields from the bill PDF's equipment data so the
+   * Contracts tab populates without needing the Upgrade Eligibility CSV.
+   *
+   * Inputs (from parseATTDetailPages):
+   *   equipmentInstallment  "X of Y" string (e.g. "3 of 24")
+   *   equipmentCharge       $/mo
+   *   equipmentFinanced     $ originally financed
+   *   equipmentRemaining    $ balance remaining
+   *   equipmentEstablished  "Apr 12, 2024" or similar
+   *   equipmentName         "APPLE IPHONE 17 PRO MAX 512GB DEEP BLUE"
+   *
+   * Outputs (mutates contract object in place):
+   *   contractType, hasActiveContract
+   *   monthlyInstallment
+   *   remainingMonths
+   *   contractEnd (string), contractEndDate (Date)
+   *   etf  (= equipmentRemaining — labelled as device balance in the tab)
+   *   deviceMake, deviceModel
+   */
+  function _deriveContractFromEquipment(d) {
+    const result = {
+      contractType:       d.equipmentInstallment ? 'Installment' : 'None',
+      hasActiveContract:  false,
+      monthlyInstallment: d.equipmentCharge || 0,
+      remainingMonths:    0,
+      contractEnd:        '',
+      contractEndDate:    null,
+      etf:                d.equipmentRemaining || 0,
+      deviceMake:         '',
+      deviceModel:        '',
+    };
+
+    if (!d.equipmentInstallment) return result;
+
+    // Parse "X of Y"
+    const m = String(d.equipmentInstallment).match(/(\d+)\s+of\s+(\d+)/i);
+    if (m) {
+      const elapsed = parseInt(m[1], 10);
+      const term    = parseInt(m[2], 10);
+      result.remainingMonths = Math.max(0, term - elapsed);
+      result.hasActiveContract = result.remainingMonths > 0;
+
+      // Derive contractEnd = established + term months
+      const start = _parseEstablishedDate(d.equipmentEstablished);
+      if (start) {
+        const end = new Date(start.getTime());
+        end.setMonth(end.getMonth() + term);
+        result.contractEndDate = end;
+        result.contractEnd = end.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+    }
+
+    // Split device name into make / model
+    const split = _splitDeviceName(d.equipmentName);
+    result.deviceMake = split.make;
+    result.deviceModel = split.model;
+
+    return result;
+  }
+
   // ═══════════════════════════════════════════════════════
   // MERGE: Summary + Detail → Final profiles
   // ═══════════════════════════════════════════════════════
@@ -659,6 +765,10 @@ window.BillPDFParser = (function () {
       const netMRC = d.netPlanMRC || s.planCharge || d.planCharge || 0;
       const grossMRC = d.grossPlanMRC || s.planCharge || d.planCharge || 0;
 
+      // Derive Contracts-tab fields from the equipment data on the bill PDF.
+      // Without this, the Contracts tab needs the Upgrade Eligibility CSV.
+      const contract = _deriveContractFromEquipment(d);
+
       profiles[wireless] = {
         wireless,
         userName: d.userName || s.userName || 'Unknown',
@@ -696,9 +806,20 @@ window.BillPDFParser = (function () {
         minTotal: talkMin,
         msgTotal: textCnt,
         zeroUsage: isZeroUsage,
-        hasActiveContract: !!d.equipmentInstallment,
-        contractEnd: null,
-        contractType: d.equipmentInstallment ? 'Installment' : '',
+        // ── Contract fields derived from the equipment data above ──
+        // The Contracts tab reads these — they previously came only from
+        // the optional Upgrade Eligibility CSV. Now any AT&T line with
+        // an installment plan on the bill populates Contracts.
+        contractType:       contract.contractType,
+        hasActiveContract:  contract.hasActiveContract,
+        monthlyInstallment: contract.monthlyInstallment,
+        remainingMonths:    contract.remainingMonths,
+        contractEnd:        contract.contractEnd,
+        contractEndDate:    contract.contractEndDate,
+        etf:                contract.etf, // device balance — see _deriveContractFromEquipment
+        deviceMake:         contract.deviceMake,
+        deviceModel:        contract.deviceModel,
+        contractEndDerivedFromBill: true, // flag for the Contracts tab to show a tooltip
         source: 'pdf',
       };
     }
