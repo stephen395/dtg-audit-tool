@@ -14,11 +14,167 @@ window.BillPDFParser = (function () {
   function parseMoney(val) {
     if (val == null || val === '' || val === '-') return 0;
     let s = String(val).trim();
-    const neg = s.startsWith('(') || s.startsWith('-');
+    // parens around the amount = negative (some carriers format that way).
+    // A leading "-" is handled by parseFloat itself — don't double-negate.
+    const negParens = s.startsWith('(');
     s = s.replace(/[$,()]/g, '').trim();
     const v = parseFloat(s);
     if (isNaN(v)) return 0;
-    return neg ? -v : v;
+    return negParens ? -Math.abs(v) : v;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // LINE CHARGES BREAKDOWN — Genserve / Stephen May-22 ask
+  //
+  // AT&T per-line detail pages organize charges into 3 sections:
+  //   Monthly charges        → plan + credits/discounts (NET = rate-plan MRC)
+  //   Company fees & surcharges → administrative / regulatory / property tax / federal USF
+  //   Government fees & taxes → 911 fee, state communications tax, sales tax
+  //
+  // Within Monthly charges, items are one of:
+  //   plan / credit-recurring / credit-onetime / discount-recurring / addon
+  //
+  // The "Net plan MRC" (gross plan + recurring credits) is what analyzers
+  // should use as the line's effective monthly rate — this is the figure
+  // that survives month-to-month, not the gross or the cycle-only total.
+  // ═══════════════════════════════════════════════════════
+
+  // Section assignment based on each item's position relative to section headers
+  function _whichSection(itemPos, hdr) {
+    if (hdr.monthly >= 0 && (hdr.company < 0 || itemPos < hdr.company)) return 'monthly';
+    if (hdr.company >= 0 && (hdr.govt    < 0 || itemPos < hdr.govt))    return 'company';
+    if (hdr.govt    >= 0 && (hdr.total   < 0 || itemPos < hdr.total))   return 'govt';
+    return 'monthly';
+  }
+
+  // Sub-classify a Monthly-charges item
+  function _classifyMonthly(desc, planName) {
+    const d = String(desc || '').trim();
+    if (/^discount for\b/i.test(d)) return 'discount-recurring';
+    if (/(smartphone|tablet|wearable|watch|hotspot|connected device)\s*line\s*discount/i.test(d)) return 'discount-recurring';
+    if (/^credit for\b/i.test(d)) {
+      // Recurring credit if it references the plan name (turnkey-style credit)
+      if (planName && d.toLowerCase().includes(planName.toLowerCase().substring(0, 20))) {
+        return 'credit-recurring';
+      }
+      // Or if it references any of the common AT&T plan families
+      if (/credit for (business|bus enh|smartphone|tablet|mobile share|unlimited|att|at&t|connected|hotspot|wearable|smartwatch|watch)/i.test(d)) {
+        return 'credit-recurring';
+      }
+      return 'credit-onetime';
+    }
+    if (/(business unlimited|business enhanced|bus enh|mobile share|unlimited.*line|att.*unlimited|at&t.*unlimited|connected device|wearable plan|hotspot|tablet plan|smartphone plan)/i.test(d)) {
+      return 'plan';
+    }
+    // Anything else inside Monthly charges is treated as an add-on (e.g.,
+    // 5G Ultra Wideband, Mobile Protection, Cloud, International) — feeds
+    // the features tracker, not the rate-plan MRC.
+    return 'addon';
+  }
+
+  /**
+   * Parse one line's bracket-section detail into a structured breakdown.
+   * Powers the "Net Plan MRC" calculation, recurring vs one-time credit
+   * classification, and the Rate Plan / Device / Fees+Taxes column split
+   * for the savings UI.
+   *
+   * @param {string} sectionText - text between [[<wn>|| ... ||<wn>]]
+   * @returns {Object} { monthlyBreakdown, grossPlanMRC, recurringCreditsTotal,
+   *                    oneTimeCreditsTotal, netPlanMRC, companyFees, govTaxes,
+   *                    computedLineTotal, planName, addons }
+   */
+  function parseLineChargesBreakdown(sectionText) {
+    const empty = {
+      monthlyBreakdown: [], grossPlanMRC: 0, recurringCreditsTotal: 0,
+      oneTimeCreditsTotal: 0, netPlanMRC: 0, companyFees: 0, govTaxes: 0,
+      computedLineTotal: 0, planName: '', addons: [],
+    };
+    if (!sectionText) return empty;
+
+    const flat = sectionText.replace(/\s+/g, ' ');
+
+    // Dollar amounts in the order they appear in the column stream. Comes out
+    // matching the numbered-item order because pdf.js linearizes column-by-column.
+    const amts = [...sectionText.matchAll(/(-?\$[\d,]+\.?\d*)/g)].map(m => m[1]);
+
+    // Section header positions
+    const hdr = {
+      monthly: flat.indexOf('Monthly charges'),
+      company: flat.indexOf('Company fees'),
+      govt:    flat.indexOf('Government fees'),
+      total:   flat.indexOf('Total for'),
+    };
+
+    // Numbered items — allow descriptions starting with any non-space char
+    // (e.g. "911 Service Fee" starts with a digit). Stop at next "N. ",
+    // section header, Total for, or end-bracket.
+    const itemRe = /\b(\d+)\.\s+(\S[^]+?)(?=\s+\d+\.\s+\S|\s+Company fees|\s+Government fees|\s+Total for|\|\|)/g;
+    const items = [...flat.matchAll(itemRe)];
+    if (items.length === 0) return empty;
+
+    // Plan name = first non-credit Monthly item. Strip trailing column-bleed
+    // ("$X.XX", "( unlimited MB)", "1 Gigabyte = ...", etc.).
+    const cleanDesc = (raw) => raw.split(/\s+\$|\s+\(\s*unlimited|\s+1 Gigabyte|\s+\d{1,3}\s+\w+\s+\(/i)[0].trim();
+    let planName = '';
+    for (const m of items) {
+      if (_whichSection(m.index, hdr) !== 'monthly') continue;
+      const desc = cleanDesc(m[2]);
+      if (!/^(credit for|discount for)/i.test(desc)) { planName = desc; break; }
+    }
+
+    // Pair amounts to items by index. The Nth dollar amount goes with the
+    // Nth numbered item; any trailing amount(s) are the section's Total
+    // and the bill-stated total. Validate the math at the bottom.
+    const monthlyBreakdown = [];
+    const addons = [];
+    let grossPlanMRC = 0, recurringCreditsTotal = 0, oneTimeCreditsTotal = 0;
+    let companyFees = 0, govTaxes = 0;
+
+    items.forEach((m, i) => {
+      const num = parseInt(m[1], 10);
+      const desc = cleanDesc(m[2]);
+      const rawAmt = amts[i] || '';
+      const amt = parseMoney(rawAmt);
+      const section = _whichSection(m.index, hdr);
+      let type;
+      if (section === 'company') type = 'company-fee';
+      else if (section === 'govt') type = 'government-tax';
+      else type = _classifyMonthly(desc, planName);
+
+      const isRecurring = (type === 'plan' || type === 'addon' ||
+                           type === 'credit-recurring' || type === 'discount-recurring');
+
+      monthlyBreakdown.push({
+        num, description: desc, amount: amt, type, section, isRecurring,
+      });
+
+      if (type === 'plan' || type === 'addon') grossPlanMRC += amt;
+      else if (type === 'credit-recurring' || type === 'discount-recurring') recurringCreditsTotal += amt;
+      else if (type === 'credit-onetime') oneTimeCreditsTotal += amt;
+      else if (type === 'company-fee') companyFees += amt;
+      else if (type === 'government-tax') govTaxes += amt;
+
+      if (type === 'addon') addons.push({ description: desc, amount: amt });
+    });
+
+    // Net plan MRC = what the line is recurringly billed for the rate plan
+    // after recurring credits. This is the figure analyzers should use.
+    // One-time credits affect this cycle's bill but not the ongoing rate.
+    const netPlanMRC = grossPlanMRC + recurringCreditsTotal;
+    const computedLineTotal = netPlanMRC + oneTimeCreditsTotal + companyFees + govTaxes;
+
+    return {
+      monthlyBreakdown,
+      grossPlanMRC,
+      recurringCreditsTotal,
+      oneTimeCreditsTotal,
+      netPlanMRC,
+      companyFees,
+      govTaxes,
+      computedLineTotal,
+      planName,
+      addons,
+    };
   }
 
   // ═══════════════════════════════════════════════════════
@@ -277,6 +433,10 @@ window.BillPDFParser = (function () {
         companyFees: 0, govTaxes: 0, totalCharges: 0,
         dataGB: 0, talkMinutes: 0, textCount: 0,
         userName: '',
+        // Stephen May-22 ask — net plan MRC + credit breakdown
+        monthlyBreakdown: [], addons: [],
+        grossPlanMRC: 0, netPlanMRC: 0,
+        recurringCreditsTotal: 0, oneTimeCreditsTotal: 0,
       };
 
       // Device type from header
@@ -301,13 +461,42 @@ window.BillPDFParser = (function () {
 
       // Rate plan — first numbered item after "Monthly charges"
       // Match: "N. Business Unlimited Performance - 5+ Lines $55.00"
-      const planMatch = text.match(/\d+\.\s+(Business [^$]+?|UNL [^$]+?|Unlimited [^$]+?|AT&T [^$]+?|Mobile Share[^$]+?)\s+\$([\d,.]+)/);
+      const planMatch = text.match(/\d+\.\s+(Business [^$]+?|UNL [^$]+?|Unlimited [^$]+?|AT&T [^$]+?|Mobile Share[^$]+?|Bus Enh [^$]+?)\s+\$([\d,.]+)/);
       if (planMatch) {
         d.ratePlan = planMatch[1].trim()
           .replace(/\s+Smartphone Line Discount.*/, '')
           .replace(/\s+Tablet Line Discount.*/, '')
           .trim();
         d.planCharge = parseMoney(planMatch[2]);
+      }
+
+      // ── Full Monthly-Charges breakdown (Stephen May-22) ──
+      // Parses every numbered item on this line's detail page into:
+      //   monthlyBreakdown: per-item { description, amount, type, isRecurring }
+      //   grossPlanMRC / recurringCreditsTotal / oneTimeCreditsTotal / netPlanMRC
+      //   companyFees / govTaxes
+      // Net plan MRC is what the analyzers should use as the line's effective
+      // monthly rate — the figure that survives month-to-month.
+      try {
+        const breakdown = parseLineChargesBreakdown(text);
+        if (breakdown.monthlyBreakdown.length > 0) {
+          d.monthlyBreakdown          = breakdown.monthlyBreakdown;
+          d.addons                    = breakdown.addons;
+          d.grossPlanMRC              = breakdown.grossPlanMRC;
+          d.recurringCreditsTotal     = breakdown.recurringCreditsTotal;
+          d.oneTimeCreditsTotal       = breakdown.oneTimeCreditsTotal;
+          d.netPlanMRC                = breakdown.netPlanMRC;
+          // Backfill fees/taxes if the summary table didn't already provide them
+          if (!d.companyFees) d.companyFees = breakdown.companyFees;
+          if (!d.govTaxes)    d.govTaxes    = breakdown.govTaxes;
+          // Prefer the breakdown's plan name when the planMatch regex above
+          // didn't catch it (newer plan name patterns, etc.)
+          if (!d.ratePlan && breakdown.planName) d.ratePlan = breakdown.planName;
+          // Override planCharge with the gross — analyzers later swap to net.
+          if (!d.planCharge && breakdown.grossPlanMRC) d.planCharge = breakdown.grossPlanMRC;
+        }
+      } catch (e) {
+        console.warn('[PDF-DETAIL] parseLineChargesBreakdown failed for', wireless, ':', e.message);
       }
 
       // Equipment installment line
@@ -462,16 +651,32 @@ window.BillPDFParser = (function () {
       }
       console.log('[MERGE]', wireless, 'deviceType:', devType, 'zeroUsage:', isZeroUsage);
 
-      // MRC = plan charge ONLY (not equipment, not one-time, not taxes)
-      const mrc = s.planCharge || d.planCharge || 0;
+      // MRC = NET plan MRC (gross plan + recurring credits). This is what
+      // analyzers should use as the line's effective monthly rate. See
+      // SOURCE_OF_TRUTH.md → "Credit classification — Recurring vs One-Time".
+      // Falls back to the summary table's planCharge when the detail-page
+      // breakdown didn't extract (rare — older bill formats).
+      const netMRC = d.netPlanMRC || s.planCharge || d.planCharge || 0;
+      const grossMRC = d.grossPlanMRC || s.planCharge || d.planCharge || 0;
 
       profiles[wireless] = {
         wireless,
         userName: d.userName || s.userName || 'Unknown',
         deviceType: devType,
         ratePlan: d.ratePlan || '',
-        mrc,
-        monthlyCharges: mrc,
+        // Analyzers read `mrc` — set it to NET (post-recurring-credits) so
+        // zero-usage / usage-report / rate-plan reflect the actual ongoing
+        // rate, not the gross sticker price.
+        mrc: netMRC,
+        monthlyCharges: netMRC,
+        // Gross + breakdown carried separately so the Rate Plan Detail tab
+        // and the new Savings columns can show "Gross $40 − Credits $15 = Net $25".
+        grossPlanMRC: grossMRC,
+        netPlanMRC: netMRC,
+        recurringCreditsTotal: d.recurringCreditsTotal || 0,
+        oneTimeCreditsTotal: d.oneTimeCreditsTotal || 0,
+        monthlyBreakdown: d.monthlyBreakdown || [],
+        addons: d.addons || [],
         totalCharges: s.totalCharges || d.totalCharges || 0,
         activityCharges: s.activityCharges || d.oneTimeTotal || 0,
         oneTimeCharges: d.oneTimeCharges || [],

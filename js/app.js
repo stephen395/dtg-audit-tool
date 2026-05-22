@@ -80,6 +80,11 @@
     'autoPay', 'paperless', 'autoPayUnlock', 'paperlessUnlock',
     'taxes', 'fees', 'latestTaxes', 'latestFees',
     'remainingMonths',
+    // Net plan MRC + credit breakdown (Stephen May-22). Bill PDF is the
+    // ONLY source for these — CSV doesn't itemize credits per line.
+    'grossPlanMRC', 'netPlanMRC',
+    'recurringCreditsTotal', 'oneTimeCreditsTotal',
+    'monthlyBreakdown', 'addons',
   ];
 
   // CSV is authoritative for usage and inventory. The bill PDF's
