@@ -80,6 +80,11 @@
     'autoPay', 'paperless', 'autoPayUnlock', 'paperlessUnlock',
     'taxes', 'fees', 'latestTaxes', 'latestFees',
     'remainingMonths',
+    // Net plan MRC + credit breakdown (Stephen May-22). Bill PDF is the
+    // ONLY source for these — CSV doesn't itemize credits per line.
+    'grossPlanMRC', 'netPlanMRC',
+    'recurringCreditsTotal', 'oneTimeCreditsTotal',
+    'monthlyBreakdown', 'addons',
   ];
 
   // CSV is authoritative for usage and inventory. The bill PDF's
@@ -300,6 +305,114 @@
 
   // Expose for tests / debugging
   window.DTG.mergeProfiles = mergeProfiles;
+
+  /**
+   * Cross-cycle credit recurrence classifier (Stephen May-22).
+   *
+   * When the user uploads 2-3 monthly bill PDFs, we can tell recurring
+   * credits (turnkey, plan savings, monthly access discount) from
+   * one-time credits (courtesy credit, migration adjustment, equipment
+   * rebate) with real evidence instead of a pattern heuristic.
+   *
+   * Logic:
+   *   For each wireless number, look at every unique credit description
+   *   across all cycles. A description present in ALL cycles where the
+   *   line was billed → recurring. Present in only SOME cycles → one-time.
+   *
+   * Mutates the LATEST cycle's lineProfiles in place:
+   *   - For each item in monthlyBreakdown that's a credit/discount, sets
+   *     item.isRecurring based on cross-cycle evidence
+   *   - Updates item.type to credit-recurring or credit-onetime
+   *   - Recomputes the profile's recurringCreditsTotal / oneTimeCreditsTotal
+   *     / netPlanMRC / mrc to reflect the new classification
+   *
+   * @param {Array} allBillData - parsed bill data, sorted oldest → newest
+   */
+  function reclassifyCreditsAcrossCycles(allBillData) {
+    if (!Array.isArray(allBillData) || allBillData.length < 2) return;
+    const cycles = allBillData.map(b => b.lineProfiles || {});
+    const newest = cycles[cycles.length - 1];
+
+    // Build a per-wireless presence map: { wn: { creditDesc: Set<cycleIdx> } }
+    const presence = {};
+    const linePresence = {}; // { wn: Set<cycleIdx> } — which cycles billed this line
+
+    cycles.forEach((profilesAtCycle, idx) => {
+      for (const [wn, p] of Object.entries(profilesAtCycle)) {
+        if (!linePresence[wn]) linePresence[wn] = new Set();
+        linePresence[wn].add(idx);
+
+        if (!presence[wn]) presence[wn] = {};
+        const items = p.monthlyBreakdown || [];
+        for (const item of items) {
+          if (item.type === 'credit-recurring' || item.type === 'credit-onetime' ||
+              item.type === 'discount-recurring') {
+            const key = item.description.toLowerCase().trim();
+            if (!presence[wn][key]) presence[wn][key] = new Set();
+            presence[wn][key].add(idx);
+          }
+        }
+      }
+    });
+
+    // Mutate the newest cycle's profiles with the corrected classification
+    let reclassified = 0;
+    for (const [wn, p] of Object.entries(newest)) {
+      const items = p.monthlyBreakdown || [];
+      if (items.length === 0) continue;
+
+      const cyclesBilled = (linePresence[wn] || new Set()).size;
+      let recurringCreditsTotal = 0;
+      let oneTimeCreditsTotal = 0;
+      let grossPlanMRC = 0;
+
+      for (const item of items) {
+        // Recompute gross independently in case it drifted
+        if (item.type === 'plan' || item.type === 'addon') {
+          grossPlanMRC += Number(item.amount) || 0;
+        }
+        // Only credit/discount items get reclassified
+        if (item.type !== 'credit-recurring' &&
+            item.type !== 'credit-onetime' &&
+            item.type !== 'discount-recurring') continue;
+
+        const key = item.description.toLowerCase().trim();
+        const cyclesSeen = (presence[wn][key] || new Set()).size;
+        const wasRecurring = (item.type === 'credit-recurring' || item.type === 'discount-recurring');
+        // Recurring iff this credit appeared in EVERY cycle the line was billed
+        const isRecurring = cyclesBilled > 0 && cyclesSeen === cyclesBilled;
+
+        if (isRecurring !== wasRecurring) {
+          reclassified++;
+          item.type = isRecurring
+            ? (item.type === 'discount-recurring' ? 'discount-recurring' : 'credit-recurring')
+            : 'credit-onetime';
+          item.isRecurring = isRecurring;
+          item.crossCycleEvidence = { cyclesSeen, cyclesBilled };
+        } else {
+          // Tag with evidence even if classification unchanged, so the UI can show confidence
+          item.crossCycleEvidence = { cyclesSeen, cyclesBilled };
+        }
+
+        const amt = Number(item.amount) || 0;
+        if (isRecurring) recurringCreditsTotal += amt;
+        else             oneTimeCreditsTotal   += amt;
+      }
+
+      // Re-derive aggregate fields from the reclassified breakdown
+      p.grossPlanMRC = grossPlanMRC || p.grossPlanMRC || 0;
+      p.recurringCreditsTotal = recurringCreditsTotal;
+      p.oneTimeCreditsTotal = oneTimeCreditsTotal;
+      p.netPlanMRC = p.grossPlanMRC + recurringCreditsTotal;
+      // `mrc` is what analyzers read — keep it net of recurring credits
+      p.mrc = p.netPlanMRC;
+      p.monthlyCharges = p.netPlanMRC;
+      p.crossCycleClassified = true;
+    }
+
+    console.log('[AUDIT] Cross-cycle reclassification: changed', reclassified, 'credit/discount items across', Object.keys(newest).length, 'lines');
+  }
+  window.DTG.reclassifyCreditsAcrossCycles = reclassifyCreditsAcrossCycles;
 
   // ═══════════════════════════════════════════════════════
   // MAIN AUDIT PIPELINE
@@ -523,22 +636,60 @@
         );
       }
 
-      // ── HYBRID MODE: parse the bill PDF and merge with CSV profiles ──
+      // ── HYBRID MODE: parse the bill PDF(s) and merge with CSV profiles ──
       // Per SOURCE_OF_TRUTH.md: when both inputs are present, PDF wins on
       // financial fields, CSV wins on usage. Runs BEFORE analyzers so every
       // downstream consumer sees the canonical merged profiles.
+      //
+      // Multi-PDF mode (Stephen May-22): when 2-3 monthly bills are uploaded,
+      // we parse all of them and cross-reference credit descriptions across
+      // cycles. A credit description that appears in every cycle's per-line
+      // breakdown is recurring; otherwise one-time. The LATEST cycle (newest
+      // issue date) is used as the canonical merge source for everything else.
       let billData = null;
-      if (uiState.files.pdf && !pdfOnlyMode) {
+      let allBillData = []; // ordered oldest → newest after sort
+      const uploadedPdfs = (uiState.files.pdfs && uiState.files.pdfs.length > 0)
+        ? uiState.files.pdfs
+        : (uiState.files.pdf ? [uiState.files.pdf] : []);
+      if (uploadedPdfs.length > 0 && !pdfOnlyMode) {
         DTG.updateProcessingProgress(55);
-        DTG.updateProcessingStatus('Reading bill PDF for source-of-truth merge...');
+        DTG.updateProcessingStatus(uploadedPdfs.length === 1
+          ? 'Reading bill PDF for source-of-truth merge...'
+          : `Reading ${uploadedPdfs.length} bill PDFs (cross-cycle credit recurrence)...`);
         try {
-          billData = await window.BillPDFParser.parse(uiState.files.pdf, (current, total) => {
-            const pct = 55 + Math.round((current / total) * 8);
-            DTG.updateProcessingProgress(pct);
-            DTG.updateProcessingStatus(`Reading bill PDF... page ${current} of ${total}`);
+          // Parse each uploaded PDF in turn
+          for (let pi = 0; pi < uploadedPdfs.length; pi++) {
+            const pdfFile = uploadedPdfs[pi];
+            const parsed = await window.BillPDFParser.parse(pdfFile, (current, total) => {
+              // Each PDF gets an equal slice of the 55-63% progress range
+              const sliceStart = 55 + Math.round((pi / uploadedPdfs.length) * 8);
+              const sliceLen = 8 / uploadedPdfs.length;
+              const pct = sliceStart + Math.round((current / total) * sliceLen);
+              DTG.updateProcessingProgress(pct);
+              DTG.updateProcessingStatus(
+                `Bill ${pi + 1}/${uploadedPdfs.length} — page ${current}/${total}`
+              );
+            });
+            console.log('[AUDIT] Bill PDF', pi + 1, 'parsed:', parsed.pageCount, 'pages, carrier:', parsed.carrier,
+                         '→', Object.keys(parsed.lineProfiles || {}).length, 'PDF profiles');
+            allBillData.push(parsed);
+          }
+
+          // Sort oldest → newest by issue date. The newest cycle is what
+          // analyzers see; the older ones only feed cross-cycle classification.
+          allBillData.sort((a, b) => {
+            const da = Date.parse(((a.accountInfo || {}).issueDate) || '') || 0;
+            const db = Date.parse(((b.accountInfo || {}).issueDate) || '') || 0;
+            return da - db;
           });
-          console.log('[AUDIT] Hybrid PDF parsed:', billData.pageCount, 'pages, carrier:', billData.carrier,
-                       '→', Object.keys(billData.lineProfiles || {}).length, 'PDF profiles');
+          billData = allBillData[allBillData.length - 1]; // newest
+
+          // Reclassify recurring vs one-time credits using cross-cycle evidence
+          if (allBillData.length >= 2 && billData.lineProfiles) {
+            reclassifyCreditsAcrossCycles(allBillData);
+            console.log('[AUDIT] Cross-cycle credit reclassification applied across',
+                         allBillData.length, 'cycles');
+          }
 
           if (billData.lineProfiles && Object.keys(billData.lineProfiles).length > 0) {
             const mergeResult = mergeProfiles(profiles, billData.lineProfiles);
@@ -1901,6 +2052,14 @@
         ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
         : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
 
+      // Stephen May-22: 4-column savings breakdown so the client can see
+      // Rate Plan + Device + Fees+Taxes separately, then Total. No more
+      // single mystery savings number.
+      const sPlan = r.savingsRatePlan || 0;
+      const sDev  = r.savingsDevice || 0;
+      const sFee  = r.savingsFeesAndTaxes || 0;
+      const sTot  = r.savingsTotal || r.monthlySavings || 0;
+
       html += `<tr>
         <td>${r.wireless}</td>
         <td>${r.userName}</td>
@@ -1911,16 +2070,25 @@
         <td>${r.contractEnd || 'N/A'}</td>
         <td style="color:${actionColor};font-weight:600">${r.action}</td>
         <td style="font-size:11px;color:#a1a1aa;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-        <td class="number" style="color:#22c55e;font-weight:600">${fmtMoney(r.monthlySavings || 0)}</td>
+        <td class="number" style="color:#22c55e">${fmtMoney(sPlan)}</td>
+        <td class="number" style="color:#22c55e">${fmtMoney(sDev)}</td>
+        <td class="number" style="color:#a1a1aa">${fmtMoney(sFee)}</td>
+        <td class="number" style="color:#22c55e;font-weight:700">${fmtMoney(sTot)}</td>
       </tr>`;
     }
 
     // Total row
+    const sumPlan = data.zeroUsageResults.reduce((s,r) => s + (r.savingsRatePlan || 0), 0);
+    const sumDev  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsDevice || 0), 0);
+    const sumFee  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsFeesAndTaxes || 0), 0);
     html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
       <td colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
       <td class="number">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
       <td colspan="4"></td>
-      <td class="number" style="color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+      <td class="number" style="color:#22c55e">${fmtMoney(sumPlan)}</td>
+      <td class="number" style="color:#22c55e">${fmtMoney(sumDev)}</td>
+      <td class="number" style="color:#a1a1aa">${fmtMoney(sumFee)}</td>
+      <td class="number" style="color:#22c55e;font-weight:700">${fmtMoney(zu.totalMonthlySavings)}</td>
     </tr>`;
 
     tbody.innerHTML = html;
@@ -1940,12 +2108,15 @@
         <th style="padding:8px 10px">User Name</th>
         <th style="padding:8px 10px">Device</th>
         <th style="padding:8px 10px">Rate Plan</th>
-        <th style="padding:8px 10px;text-align:right">MRC</th>
+        <th style="padding:8px 10px;text-align:right" title="Net plan MRC (gross plan - recurring credits)">Net MRC</th>
         <th style="padding:8px 10px;text-align:center">Contract?</th>
         <th style="padding:8px 10px">Contract End</th>
         <th style="padding:8px 10px">Action</th>
         <th style="padding:8px 10px">Reason</th>
-        <th style="padding:8px 10px;text-align:right">Savings/mo</th>
+        <th style="padding:8px 10px;text-align:right" title="Rate plan savings">Save: Plan</th>
+        <th style="padding:8px 10px;text-align:right" title="Device installment savings">Save: Device</th>
+        <th style="padding:8px 10px;text-align:right" title="Fees + taxes savings">Save: Fees+Taxes</th>
+        <th style="padding:8px 10px;text-align:right" title="Total monthly savings">Save: Total</th>
       </tr></thead><tbody>`;
 
     for (const r of data.zeroUsageResults) {
@@ -1953,6 +2124,11 @@
       const contractBadge = r.hasActiveContract
         ? '<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">YES</span>'
         : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">NO</span>';
+
+      const sPlan = r.savingsRatePlan || 0;
+      const sDev  = r.savingsDevice || 0;
+      const sFee  = r.savingsFeesAndTaxes || 0;
+      const sTot  = r.savingsTotal || r.monthlySavings || 0;
 
       html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
         <td style="padding:6px 10px;font-variant-numeric:tabular-nums">${r.wireless}</td>
@@ -1964,16 +2140,25 @@
         <td style="padding:6px 10px">${r.contractEnd || 'N/A'}</td>
         <td style="padding:6px 10px;color:${actionColor};font-weight:600">${r.action}</td>
         <td style="padding:6px 10px;font-size:11px;color:#a1a1aa;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">${fmtMoney(r.monthlySavings || 0)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-variant-numeric:tabular-nums">${fmtMoney(sPlan)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-variant-numeric:tabular-nums">${fmtMoney(sDev)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#a1a1aa;font-variant-numeric:tabular-nums">${fmtMoney(sFee)}</td>
+        <td style="padding:6px 10px;text-align:right;color:#22c55e;font-weight:700;font-variant-numeric:tabular-nums">${fmtMoney(sTot)}</td>
       </tr>`;
     }
 
     // Total row
+    const sumPlan = data.zeroUsageResults.reduce((s,r) => s + (r.savingsRatePlan || 0), 0);
+    const sumDev  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsDevice || 0), 0);
+    const sumFee  = data.zeroUsageResults.reduce((s,r) => s + (r.savingsFeesAndTaxes || 0), 0);
     html += `<tr style="background:rgba(34,197,94,0.08);font-weight:600">
       <td style="padding:8px 10px" colspan="4">TOTAL — ${data.zeroUsageResults.length} lines</td>
       <td style="padding:8px 10px;text-align:right">${fmtMoney(data.zeroUsageResults.reduce((s,r) => s + (r.mrc||0), 0))}</td>
       <td colspan="4"></td>
-      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(zu.totalMonthlySavings)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(sumPlan)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e">${fmtMoney(sumDev)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#a1a1aa">${fmtMoney(sumFee)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#22c55e;font-weight:700">${fmtMoney(zu.totalMonthlySavings)}</td>
     </tr>`;
 
     html += '</tbody></table></div>';

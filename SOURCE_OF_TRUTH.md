@@ -8,6 +8,13 @@ This rule governs which uploaded file is authoritative for which data field. It 
 
 Usage / charges CSV is **recommended** (it's the authoritative source for usage and inventory — see the table below), but the audit will run on the bill PDF alone for small accounts.
 
+**Up to 3 monthly bills can be uploaded** (one per cycle) for accurate **recurring vs one-time credit classification**:
+- **3 cycles** → full cross-cycle classification: a credit description present in all 3 cycles is recurring; present in 1–2 is one-time. This is the highest-confidence mode.
+- **2 cycles** → partial cross-cycle evidence; a credit must be in both to count as recurring.
+- **1 cycle** → falls back to a description-pattern heuristic ("Credit for [plan name]" → recurring; "Discount for Plan Savings" → recurring; ad-hoc dollar credits → one-time). Less accurate but works with what's uploaded.
+
+The **newest cycle** (by issue date) is used as the canonical bill for all financial values. Older cycles are read only to inform the credit recurrence classifier — they don't override the newest cycle's MRC, fees, or taxes.
+
 ## The Rule
 
 When both a **bill PDF** and **CSV reports** are uploaded for the same account:

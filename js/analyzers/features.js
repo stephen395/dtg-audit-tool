@@ -71,10 +71,16 @@ window.FeatureAnalyzer = (function () {
 
   // Plan-name patterns. Anything matching is the line's recurring rate plan,
   // not an add-on. Order: most-specific first.
+  //
+  // Stephen May-22: corrected — Mobile Share and the group rate plans (where
+  // a "Group" charges a data-pool fee and individual lines pay an access fee)
+  // ARE RATE PLANS, NOT FEATURES. Previously misclassified as add-ons.
   const PLAN_PATTERNS = [
     /^\s*bus\s*unl/i,
     /^\s*business\s*unl/i,
     /^\s*business\s*unlimited/i,
+    /^\s*business\s*enhanced/i,             // AT&T Business Enhanced Plus / Std
+    /^\s*bus\s*enh/i,                       // AT&T "Bus Enh Std" / "Bus Enh Plus" variants
     /^\s*my\s*biz\s*plan/i,
     /^\s*5g\s*business\s*internet/i,
     /^\s*the\s*new\s*verizon\s*plan/i,
@@ -88,6 +94,14 @@ window.FeatureAnalyzer = (function () {
     /^\s*mobility\s*(select|smart)/i,
     /^\s*smart\s*business/i,
     /\bnationwide\b/i,
+    // Mobile Share + group rate plans. Lines on these pay an access fee
+    // (typically $4.25–$15) and share data from a group-level pool charge.
+    // The group plan name is the rate plan, NOT a feature.
+    /\bmobile\s*share\b/i,
+    /^\s*group\s*\d+\s*$/i,                 // "Group 10", "Group 12", etc.
+    /\baccess\s*(fee|charge)\b/i,           // line-level access fee under a group plan
+    /\bshared\s*data\b/i,
+    /\bpooled\s*data\b/i,
   ];
 
   // Patterns indicating a non-feature charge: discount, credit, refund,
